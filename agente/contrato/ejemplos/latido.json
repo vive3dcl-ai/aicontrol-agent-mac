@@ -1,0 +1,11 @@
+{
+  "contrato": 1,
+  "versionAgente": "0.1.0",
+  "cpu": "8",
+  "ramMb": 16384,
+  "usuarioSesion": "ana",
+  "hostname": "pc-laboratorio",
+  "versionSo": "linux",
+  "estadoExtension": "no_instalada",
+  "estadoCa": "no_instalada"
+}

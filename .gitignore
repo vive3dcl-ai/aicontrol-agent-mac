@@ -1,0 +1,7 @@
+target/
+dist/
+ssh.local
+*.msi
+__pycache__/
+*.pyc
+agente/linux/gobernanza-agente

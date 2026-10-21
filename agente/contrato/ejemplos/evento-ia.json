@@ -1,0 +1,18 @@
+{
+  "contrato": 1,
+  "proveedor": "openai",
+  "superficie": "web",
+  "modelo": "gpt-4.1",
+  "consulta": "Resume este informe",
+  "respuesta": "El informe resume tres hallazgos.",
+  "tokensEntrada": 120,
+  "tokensSalida": 40,
+  "costoEstimadoUsd": 0.002,
+  "archivo": {
+    "nombre": "informe.pdf",
+    "tipo": "application/pdf",
+    "tamano": 2048,
+    "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "ocurridoEn": "2026-10-15T21:05:00.000Z"
+}

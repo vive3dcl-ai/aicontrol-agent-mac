@@ -1,0 +1,22 @@
+mod actualizacion;
+mod aviso;
+mod baja;
+mod ca;
+mod captura;
+mod configuracion;
+mod contrato;
+mod estado;
+mod navegador;
+mod paquete;
+mod politica;
+mod programas;
+mod proxy;
+mod red;
+mod servicio;
+mod sesion;
+mod sistema;
+mod sobre;
+mod tarjeta;
+mod ui;
+
+pub mod cli;

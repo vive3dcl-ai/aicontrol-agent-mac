@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+mkdir -p "/Library/Application Support/Gobernanza"
+chmod 755 "/Library/Application Support/Gobernanza"
+cp /Applications/AIcontrol.app/Contents/Resources/local.itsec.aicontrol.plist /Library/LaunchDaemons/local.itsec.aicontrol.plist
+cp /Applications/AIcontrol.app/Contents/Resources/local.itsec.aicontrol.menu.plist /Library/LaunchAgents/local.itsec.aicontrol.menu.plist
+chmod 644 /Library/LaunchDaemons/local.itsec.aicontrol.plist /Library/LaunchAgents/local.itsec.aicontrol.menu.plist
+launchctl enable system/local.itsec.aicontrol || true
+launchctl bootout system/local.itsec.aicontrol || true
+launchctl bootstrap system /Library/LaunchDaemons/local.itsec.aicontrol.plist
+launchctl kickstart -k system/local.itsec.aicontrol || true
+usuario="$(stat -f %Su /dev/console || true)"
+if [[ -n "$usuario" && "$usuario" != "root" ]]; then
+  uid="$(id -u "$usuario")"
+  launchctl bootstrap "gui/$uid" /Library/LaunchAgents/local.itsec.aicontrol.menu.plist || true
+  launchctl kickstart "gui/$uid/local.itsec.aicontrol.menu" || true
+fi
+"/Applications/AIcontrol.app/Contents/MacOS/AIcontrol-daemon" aviso-instalacion || true

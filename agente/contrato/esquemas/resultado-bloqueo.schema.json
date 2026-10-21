@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/resultado-bloqueo.schema.json",
+  "title": "Resultado de bloqueo",
+  "description": "Lo que el agente informará cuando aplique una política. inspeccion_rechazada registra un certificado que la app no aceptó. No se evade el pinning. omitido_fail_open significa que la inspección falló y la red siguió.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "politicaId", "destino", "accion", "resultado", "ocurridoEn"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "politicaId": { "type": "string", "minLength": 1 },
+    "destino": { "type": "string", "minLength": 1 },
+    "accion": { "enum": ["permitir", "bloquear", "redirigir"] },
+    "resultado": { "enum": ["aplicado", "inspeccion_rechazada", "omitido_fail_open"] },
+    "ocurridoEn": { "type": "string", "minLength": 10 }
+  }
+}

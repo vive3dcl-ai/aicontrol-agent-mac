@@ -1,0 +1,8 @@
+{
+  "contrato": 1,
+  "correo": "analista@laboratorio.local",
+  "nombre": "Analista",
+  "clave": "clave-ejemplo",
+  "rol": "analista",
+  "tenantId": "tenant-ejemplo"
+}

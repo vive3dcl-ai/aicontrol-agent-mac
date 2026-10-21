@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/usuario.schema.json",
+  "title": "Usuario del panel",
+  "description": "Cuenta humana. No es la identidad del equipo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "correo", "nombre", "clave", "rol"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "correo": { "type": "string", "minLength": 3 },
+    "nombre": { "type": "string", "minLength": 1 },
+    "clave": { "type": "string", "minLength": 8 },
+    "rol": { "enum": ["responsable_seguridad", "analista", "operador", "user", "superadmin", "admin"] },
+    "tenantId": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/programa.schema.json",
+  "title": "Programa detectado",
+  "description": "Ficha de un programa de escritorio abierto: pid, hijos y datos del binario.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "programaId", "pid", "hijos", "ruta", "usuario", "ocurridoEn"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "programaId": { "type": "string", "minLength": 1 },
+    "pid": { "type": "integer", "minimum": 1 },
+    "hijos": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "type": "integer", "minimum": 1 }
+    },
+    "ruta": { "type": "string", "minLength": 1 },
+    "linea": { "type": "string" },
+    "usuario": { "type": "string", "minLength": 1 },
+    "tamano": { "type": "integer", "minimum": 0 },
+    "modificadoEn": { "type": "string", "minLength": 10 },
+    "version": { "type": "string", "minLength": 1 },
+    "ocurridoEn": { "type": "string", "minLength": 10 }
+  }
+}

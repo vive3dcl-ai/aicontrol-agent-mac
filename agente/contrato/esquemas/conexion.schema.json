@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/conexion.schema.json",
+  "title": "Conexión",
+  "description": "Metadato de una conexión saliente. No admite contenido, cuerpo ni consulta.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "destino", "ocurridoEn"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "destino": { "type": "string", "minLength": 1 },
+    "sni": { "type": "string", "minLength": 1 },
+    "proceso": { "type": "string", "minLength": 1 },
+    "bytesEntrada": { "type": "integer", "minimum": 0 },
+    "bytesSalida": { "type": "integer", "minimum": 0 },
+    "ocurridoEn": { "type": "string", "minLength": 10 }
+  }
+}

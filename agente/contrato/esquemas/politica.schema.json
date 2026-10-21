@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/politica.schema.json",
+  "title": "Política",
+  "description": "Permitir, bloquear o redirigir un proveedor, un endpoint o un host. El sujeto de usuario es el usuario de sesión del equipo, no una cuenta del panel. Un grupo reúne varios usuarios de sesión. Si la inspección falla, la red sigue.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "nombre", "accion", "alcance", "destino"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "nombre": { "type": "string", "minLength": 1 },
+    "accion": { "enum": ["permitir", "bloquear", "redirigir"] },
+    "alcance": { "enum": ["tenant", "usuario", "equipo", "grupo"] },
+    "sujeto": { "type": "string", "minLength": 1 },
+    "destino": { "type": "string", "minLength": 1 },
+    "proveedorId": { "type": "string", "minLength": 1 },
+    "endpointId": { "type": "string", "minLength": 1 },
+    "puntoRedireccionId": { "type": "string", "minLength": 1 },
+    "activa": { "type": "boolean" }
+  }
+}

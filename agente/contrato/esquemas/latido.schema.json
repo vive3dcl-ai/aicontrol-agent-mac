@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/latido.schema.json",
+  "title": "Latido",
+  "description": "El equipo sigue vivo y actualiza la tarjeta. No corta la red si el API no responde.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "versionAgente", "cpu", "ramMb", "usuarioSesion"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "versionAgente": { "type": "string", "minLength": 1 },
+    "cpu": { "type": "string", "minLength": 1 },
+    "ramMb": { "type": "integer", "minimum": 1 },
+    "usuarioSesion": { "type": "string", "minLength": 1 },
+    "hostname": { "type": "string", "minLength": 1 },
+    "machineId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{8,128}$" },
+    "versionSo": { "type": "string", "minLength": 1 },
+    "estadoExtension": { "enum": ["no_instalada", "activa", "error"] },
+    "estadoCa": { "enum": ["no_instalada", "vigente", "por_vencer", "ausente"] },
+    "estadoActualizacion": { "enum": ["aplicada", "pendiente_reinicio"] },
+    "versionPendiente": { "type": "string", "minLength": 1 },
+    "renuevaTokens": { "type": "boolean" }
+  }
+}

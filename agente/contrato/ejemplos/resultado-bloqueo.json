@@ -1,0 +1,8 @@
+{
+  "contrato": 1,
+  "politicaId": "politica-ejemplo",
+  "destino": "chatgpt.com",
+  "accion": "bloquear",
+  "resultado": "omitido_fail_open",
+  "ocurridoEn": "2026-10-15T21:07:00.000Z"
+}

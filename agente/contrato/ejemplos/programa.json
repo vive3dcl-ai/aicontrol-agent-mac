@@ -1,0 +1,13 @@
+{
+  "contrato": 1,
+  "programaId": "programa-hermes",
+  "pid": 4401,
+  "hijos": [4402, 4408],
+  "ruta": "/usr/bin/hermes",
+  "linea": "hermes",
+  "usuario": "ana",
+  "tamano": 2488320,
+  "modificadoEn": "2026-10-15T21:00:00.000Z",
+  "version": "1.4.2",
+  "ocurridoEn": "2026-10-15T21:06:00.000Z"
+}

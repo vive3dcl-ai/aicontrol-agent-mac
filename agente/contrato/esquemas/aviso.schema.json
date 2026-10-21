@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/aviso.schema.json",
+  "title": "Aviso",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "titulo", "cuerpo"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "titulo": { "type": "string", "minLength": 1 },
+    "cuerpo": { "type": "string", "minLength": 1 }
+  }
+}

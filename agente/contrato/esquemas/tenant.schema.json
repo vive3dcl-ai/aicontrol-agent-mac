@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/tenant.schema.json",
+  "title": "Tenant",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "nombre", "slug"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "nombre": { "type": "string", "minLength": 2 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+  }
+}

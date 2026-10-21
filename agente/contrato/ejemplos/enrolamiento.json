@@ -1,0 +1,11 @@
+{
+  "contrato": 1,
+  "tenantSlug": "laboratorio",
+  "hostname": "pc-laboratorio",
+  "sistema": "linux",
+  "versionSo": "linux",
+  "versionAgente": "0.1.0",
+  "cpu": "8",
+  "ramMb": 16384,
+  "usuarioSesion": "ana"
+}

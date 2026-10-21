@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/proceso.schema.json",
+  "title": "Proceso",
+  "description": "Instantánea de un proceso. El inventario con las API de cada sistema es el bloque de fase 3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "nombre", "ruta", "capturadoEn"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "nombre": { "type": "string", "minLength": 1 },
+    "ruta": { "type": "string", "minLength": 1 },
+    "hash": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "firma": { "type": "string", "minLength": 1 },
+    "editor": { "type": "string", "minLength": 1 },
+    "capturadoEn": { "type": "string", "minLength": 10 }
+  }
+}

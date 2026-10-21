@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>local.gobernanza.red</string>
+  <key>CFBundleName</key>
+  <string>GobernanzaRed</string>
+  <key>CFBundlePackageType</key>
+  <string>SYSX</string>
+  <key>NetworkExtension</key>
+  <dict>
+    <key>NEMachServiceName</key>
+    <string>local.gobernanza.red</string>
+    <key>NEProviderClasses</key>
+    <dict>
+      <key>com.apple.networkextension.app-proxy</key>
+      <string>$(PRODUCT_MODULE_NAME).GobernanzaProxyProvider</string>
+    </dict>
+  </dict>
+</dict>
+</plist>

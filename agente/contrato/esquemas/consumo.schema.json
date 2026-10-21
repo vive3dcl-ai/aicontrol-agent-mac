@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/consumo.schema.json",
+  "title": "Consumo del agente",
+  "description": "CPU y RAM del proceso del agente, medidas en el equipo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "cpuPorcentaje", "ramMb"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "cpuPorcentaje": { "type": "number", "minimum": 0 },
+    "ramMb": { "type": "integer", "minimum": 0 }
+  }
+}

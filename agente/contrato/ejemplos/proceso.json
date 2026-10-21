@@ -1,0 +1,9 @@
+{
+  "contrato": 1,
+  "nombre": "chatgpt",
+  "ruta": "/usr/bin/chatgpt",
+  "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "firma": "sin-firma",
+  "editor": "desconocido",
+  "capturadoEn": "2026-10-15T21:06:00.000Z"
+}

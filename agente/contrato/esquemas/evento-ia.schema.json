@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gobernanza.local/contrato/evento-ia.schema.json",
+  "title": "Evento de IA",
+  "description": "Consulta clasificada como IA: proveedor, superficie, modelo, texto, tokens, costo y archivo.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contrato", "proveedor", "superficie", "ocurridoEn"],
+  "properties": {
+    "contrato": { "const": 1 },
+    "proveedor": { "type": "string", "minLength": 1 },
+    "superficie": { "enum": ["web", "app", "api"] },
+    "modelo": { "type": "string", "minLength": 1 },
+    "consulta": { "type": "string" },
+    "respuesta": { "type": "string" },
+    "tokensEntrada": { "type": "integer", "minimum": 0 },
+    "tokensSalida": { "type": "integer", "minimum": 0 },
+    "costoEstimadoUsd": { "type": "number", "minimum": 0 },
+    "archivo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nombre", "tipo", "tamano", "hash"],
+      "properties": {
+        "nombre": { "type": "string", "minLength": 1 },
+        "tipo": { "type": "string", "minLength": 1 },
+        "tamano": { "type": "integer", "minimum": 0 },
+        "hash": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" }
+      }
+    },
+    "ocurridoEn": { "type": "string", "minLength": 10 }
+  }
+}

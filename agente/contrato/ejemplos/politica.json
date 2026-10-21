@@ -1,0 +1,7 @@
+{
+  "contrato": 1,
+  "nombre": "ChatGPT del tenant",
+  "accion": "permitir",
+  "alcance": "tenant",
+  "destino": "chatgpt.com"
+}

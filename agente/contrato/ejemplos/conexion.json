@@ -1,0 +1,9 @@
+{
+  "contrato": 1,
+  "destino": "banco.example:443",
+  "sni": "banco.example",
+  "proceso": "navegador",
+  "bytesEntrada": 1200,
+  "bytesSalida": 800,
+  "ocurridoEn": "2026-10-15T21:00:00.000Z"
+}
