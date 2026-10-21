@@ -1,13 +1,13 @@
 use serde_json::Value;
 
 const ESQUEMAS: &[(&str, &str)] = &[
-    ("enrolamiento", include_str!("../../../contrato/esquemas/enrolamiento.schema.json")),
-    ("latido", include_str!("../../../contrato/esquemas/latido.schema.json")),
-    ("programa", include_str!("../../../contrato/esquemas/programa.schema.json")),
-    ("evento-ia", include_str!("../../../contrato/esquemas/evento-ia.schema.json")),
-    ("resultado-bloqueo", include_str!("../../../contrato/esquemas/resultado-bloqueo.schema.json")),
-    ("conexion", include_str!("../../../contrato/esquemas/conexion.schema.json")),
-    ("consumo", include_str!("../../../contrato/esquemas/consumo.schema.json")),
+    ("enrolamiento", include_str!("../../contrato/esquemas/enrolamiento.schema.json")),
+    ("latido", include_str!("../../contrato/esquemas/latido.schema.json")),
+    ("programa", include_str!("../../contrato/esquemas/programa.schema.json")),
+    ("evento-ia", include_str!("../../contrato/esquemas/evento-ia.schema.json")),
+    ("resultado-bloqueo", include_str!("../../contrato/esquemas/resultado-bloqueo.schema.json")),
+    ("conexion", include_str!("../../contrato/esquemas/conexion.schema.json")),
+    ("consumo", include_str!("../../contrato/esquemas/consumo.schema.json")),
 ];
 
 pub fn validar_contrato(nombre: &str, cuerpo: &Value) -> Result<(), String> {
