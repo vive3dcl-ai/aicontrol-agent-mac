@@ -132,7 +132,7 @@ El daemon baja el archivo con el token, comprueba el SHA-256, lo deja en `pendie
 
 Cuando el proceso nuevo informa la versión instalada, el latido manda `estadoActualizacion: aplicada` y borra el marcador. Mientras la versión del marcador no es la que corre, manda `pendiente_reinicio`.
 
-El instalador de un equipo nuevo es `AIcontrol.pkg`. Al bajarlo, el nombre lleva la versión: `AIcontrol-0.1.0.pkg`. La firma Developer ID y la notarización se hacen en un Mac, fuera de este repositorio, igual que la firma OV de Windows.
+El instalador de un equipo nuevo es `AIcontrol.pkg`. Al bajarlo, el nombre lleva la versión de `daemon/Cargo.toml`, la misma que el agente de Windows. La empresa es ITsec. S.A. La firma Developer ID y la notarización se hacen en un Mac, fuera de este repositorio, igual que la firma OV de Windows.
 
 ## Desinstalación
 

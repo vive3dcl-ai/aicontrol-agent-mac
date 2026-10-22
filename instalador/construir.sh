@@ -30,7 +30,8 @@ cp "$raiz/instalador/local.itsec.aicontrol.menu.plist" "$app/Contents/Resources/
 cp "$raiz/app/Resources/logo.bgra" "$app/Contents/Resources/logo.bgra"
 chmod 755 "$app/Contents/MacOS/AIcontrol" "$app/Contents/MacOS/AIcontrol-daemon" "$raiz/instalador/scripts/preinstall" "$raiz/instalador/scripts/postinstall"
 "$app/Contents/MacOS/AIcontrol-daemon" empaquetar --dir "$app" --salida "$salida/AIcontrol-actualizacion.zip"
-pkgbuild --root "$salida/pkgroot" --identifier local.itsec.aicontrol --version 0.1.0 --install-location / --scripts "$raiz/instalador/scripts" "$salida/AIcontrol.pkg"
+version=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$raiz/daemon/Cargo.toml" | head -1)
+pkgbuild --root "$salida/pkgroot" --identifier local.itsec.aicontrol --version "$version" --install-location / --scripts "$raiz/instalador/scripts" "$salida/AIcontrol.pkg"
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   codesign --force --deep --sign "$SIGN_IDENTITY" "$app"
   productsign --sign "$SIGN_IDENTITY" "$salida/AIcontrol.pkg" "$salida/AIcontrol-firmado.pkg"
