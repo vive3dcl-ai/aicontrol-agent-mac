@@ -152,16 +152,16 @@ final class Orbe: NSView {
         ctx.saveGState()
         ctx.translateBy(x: 0, y: bounds.height)
         ctx.scaleBy(x: 1, y: -1)
-        let halo = bounds.insetBy(dx: 10, dy: 10)
-        ctx.setFillColor(color.withAlphaComponent(0.2).cgColor)
+        let halo = bounds
+        ctx.setFillColor(color.withAlphaComponent(51 / 255).cgColor)
         ctx.fillEllipse(in: halo)
         ctx.setFillColor(color.cgColor)
-        ctx.fillEllipse(in: halo.insetBy(dx: 28, dy: 28))
+        ctx.fillEllipse(in: halo.insetBy(dx: 32, dy: 32))
         if animar {
             ctx.setStrokeColor(color.cgColor)
-            ctx.setLineWidth(4)
+            ctx.setLineWidth(3.5)
             ctx.setLineCap(.round)
-            ctx.addArc(center: CGPoint(x: bounds.midX, y: bounds.midY), radius: halo.width / 2 - 2, startAngle: angulo * .pi / 180, endAngle: (angulo + 110) * .pi / 180, clockwise: false)
+            ctx.addArc(center: CGPoint(x: bounds.midX, y: bounds.midY), radius: 50, startAngle: angulo * .pi / 180, endAngle: (angulo + 110) * .pi / 180, clockwise: false)
             ctx.strokePath()
         }
         ctx.restoreGState()
@@ -200,6 +200,7 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var pulso = false
     var informe = ""
     var colorAviso = tintaPiedra
+    var instalando = false
     var animando = false
     var cerrando = false
     var animInicio = Date()
@@ -242,12 +243,12 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
             logo.isHidden = true
         }
         titulo.alignment = .center
-        titulo.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
+        titulo.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
         titulo.textColor = tituloRojo
         titulo.drawsBackground = false
         titulo.isBezeled = false
         certificado.alignment = .center
-        certificado.font = NSFont.systemFont(ofSize: 13)
+        certificado.font = NSFont.systemFont(ofSize: 14)
         certificado.textColor = tintaPiedra
         certificado.drawsBackground = false
         certificado.isBezeled = false
@@ -311,7 +312,7 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         parrafo.alignment = .center
         boton.attributedTitle = NSAttributedString(string: boton.title, attributes: [
             .foregroundColor: tinta,
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
             .paragraphStyle: parrafo,
         ])
     }
@@ -535,15 +536,21 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func pintarEstado() {
         let conexion = estado["conexion"] as? String ?? "desconectado"
         let paso = pasoActual()
-        orbe.animar = conexion == "conectando" || conexion == "eligiendo"
-        orbe.color = colorOrbe(conexion)
+        orbe.animar = instalando || conexion == "conectando" || conexion == "eligiendo"
+        orbe.color = instalando ? azul : colorOrbe(conexion)
         orbe.needsDisplay = true
-        if paso == "ajustes" || paso == "clave" {
+        if instalando {
+            titulo.stringValue = "Instalando"
+            titulo.textColor = tituloAzul
+            titulo.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
+        } else if paso == "ajustes" || paso == "clave" {
             titulo.stringValue = "Ajustes"
             titulo.textColor = tintaClara
+            titulo.font = NSFont.systemFont(ofSize: 18, weight: .semibold)
         } else {
             titulo.stringValue = tituloConexion(conexion)
             titulo.textColor = colorTitulo(conexion)
+            titulo.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
         }
         let instalado = (estado["certificado"] as? String) == "instalado"
         certificado.stringValue = instalado ? "Certificado instalado" : "Certificado pendiente"
@@ -556,27 +563,30 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let editando = ventana.firstResponder is NSTextView
         pintarEstado()
         let muestraCert = paso != "servidor" && paso != "ajustes" && paso != "clave"
-        var piezas: [(NSView, CGFloat)] = []
-        func fila(_ vista: NSView, _ alto: CGFloat) {
+        var piezas: [(NSView, CGFloat, CGFloat, CGFloat, Bool)] = []
+        func fila(_ vista: NSView, _ alto: CGFloat, x: CGFloat = 18, ancho: CGFloat = 304, nueva: Bool = true) {
             vista.isHidden = false
-            piezas.append((vista, alto))
+            piezas.append((vista, alto, x, ancho, nueva))
+        }
+        func filaModos() {
+            fila(modoGlobal, 34, x: 18, ancho: 146)
+            fila(modoPropio, 34, x: 176, ancho: 146, nueva: false)
         }
         for vista in [logo, orbe, titulo, certificado, aviso, modoGlobal, modoPropio, direccion, host, guardarDireccion, correo, clave, principal, secundario, claveBaja, baja] {
             vista.isHidden = true
         }
-        if logo.image != nil && paso != "ajustes" && paso != "clave" { fila(logo, 52) }
-        if paso != "ajustes" && paso != "clave" { fila(orbe, 132) }
-        fila(titulo, 24)
-        if muestraCert { fila(certificado, 18) }
+        if logo.image != nil && paso != "ajustes" && paso != "clave" { fila(logo, 52, x: 70, ancho: 200) }
+        if paso != "ajustes" && paso != "clave" { fila(orbe, 112, x: 114, ancho: 112) }
+        fila(titulo, paso == "ajustes" || paso == "clave" ? 28 : 30)
+        if muestraCert { fila(certificado, 22) }
         switch paso {
         case "servidor":
             aviso.stringValue = "Self-host usa un servidor propio. AIcontrol prueba este equipo y, si no responde, sigue por el servicio público."
             aviso.textColor = tintaPiedra
             fila(aviso, 64)
+            filaModos()
             fila(direccion, 18)
             direccion.stringValue = "Conectar a AIcontrol"
-            fila(modoGlobal, 34)
-            fila(modoPropio, 34)
             if modoConexion == "personalizado" { fila(host, 32) }
             principal.title = "Continuar"
             fila(principal, 36)
@@ -587,13 +597,26 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
             principal.title = "Instalar certificado"
             fila(principal, 36)
         case "navegadores":
-            aviso.stringValue = "Al instalar el certificado se activa el filtro en Chrome, Edge, Brave, Opera, Firefox y el resto de navegadores Chromium. Los que estén abiertos se cierran para que lo tomen."
-            aviso.textColor = tintaPiedra
-            fila(aviso, 72)
-            principal.title = "Instalar y aplicar"
-            fila(principal, 36)
+            if instalando {
+                aviso.stringValue = "Generando el certificado del equipo…"
+                aviso.textColor = tintaPiedra
+                fila(aviso, 40)
+            } else {
+                aviso.stringValue = "Al instalar el certificado se activa el filtro en Chrome, Edge, Brave, Opera, Firefox y el resto de navegadores Chromium. Los que estén abiertos se cierran para que lo tomen."
+                aviso.textColor = tintaPiedra
+                fila(aviso, 72)
+                principal.title = "Instalar y aplicar"
+                fila(principal, 36)
+            }
         case "cuenta":
-            if !informe.isEmpty { fila(aviso, 36) }
+            if informe.isEmpty && (estado["tieneToken"] as? Bool ?? true) == false {
+                aviso.stringValue = "Hay que volver a enlazar el equipo. Escribe el correo y la clave de enrolamiento."
+                aviso.textColor = tintaPeligro
+                fila(aviso, 48)
+            } else if !informe.isEmpty {
+                aviso.textColor = tintaOk
+                fila(aviso, 36)
+            }
             if !editando {
                 clave.placeholderString = "Clave de enrolamiento"
             }
@@ -620,11 +643,14 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 aviso.stringValue = "Se quitarán el certificado, el proxy y las políticas de los navegadores. El equipo volverá a la navegación anterior. Esta acción no se puede deshacer."
                 aviso.textColor = tintaPeligro
             }
+            if faseBaja == 0 && !faseCierre && !informe.isEmpty {
+                aviso.stringValue = informe
+                aviso.textColor = tintaOk
+            }
             if !aviso.stringValue.isEmpty { fila(aviso, 64) }
+            filaModos()
             fila(direccion, 18)
             direccion.stringValue = "Conectar a AIcontrol"
-            fila(modoGlobal, 34)
-            fila(modoPropio, 34)
             if !direccionLista && !editando {
                 modoConexion = (estado["hostModo"] as? String) == "personalizado" ? "personalizado" : "global"
                 host.stringValue = estado["hostPersonalizado"] as? String ?? ""
@@ -653,17 +679,21 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         estiloBoton(modoGlobal, relleno: modoConexion == "global" ? elegido : nil, tinta: modoConexion == "global" ? tintaFondo : tintaPiedra, borde: modoConexion == "global" ? elegido : tintaBorde)
         estiloBoton(modoPropio, relleno: modoConexion == "personalizado" ? elegido : nil, tinta: modoConexion == "personalizado" ? tintaFondo : tintaPiedra, borde: modoConexion == "personalizado" ? elegido : tintaBorde)
         estiloBoton(principal, relleno: tintaClara, tinta: tintaFondo, borde: tintaClara)
-        estiloBoton(guardarDireccion, relleno: tintaCampo, tinta: tintaClara, borde: tintaBorde)
+        estiloBoton(guardarDireccion, relleno: nil, tinta: tintaPiedra, borde: tintaBorde)
         estiloBoton(secundario, relleno: nil, tinta: tintaPeligro, borde: tintaBordePeligro)
         estiloBoton(baja, relleno: nil, tinta: tintaPeligro, borde: tintaBordePeligro)
-        var y: CGFloat = 18
-        let ancho: CGFloat = 304
-        for (vista, alto) in piezas where !vista.isHidden && alto > 0 {
-            let x: CGFloat = vista === orbe || vista === logo ? (340 - (vista === orbe ? 132 : 200)) / 2 : 18
-            let w: CGFloat = vista === orbe ? 132 : vista === logo ? 200 : ancho
-            vista.frame = NSRect(x: x, y: y, width: w, height: alto)
-            y += alto + 10
+        var y: CGFloat = paso == "ajustes" || paso == "clave" ? 16 : 10
+        var filaAlto: CGFloat = 0
+        var filaAbierta = false
+        for (vista, alto, x, ancho, nueva) in piezas where !vista.isHidden {
+            if nueva && filaAbierta {
+                y += filaAlto + 8
+            }
+            vista.frame = NSRect(x: x, y: y, width: ancho, height: alto)
+            filaAlto = alto
+            filaAbierta = true
         }
+        if filaAbierta { y += filaAlto + 8 }
         let altoVentana = max(180, y + 8)
         let origen = animando ? ventana.frame.origin : colocar(alto: altoVentana).destino
         ventana.setFrame(NSRect(x: origen.x, y: origen.y, width: 340, height: altoVentana), display: true)
@@ -720,7 +750,13 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc func guardarPropio() { elegir(modoConexion, host.stringValue, "/ajustes/direccion") }
 
     func instalarCertificado() {
+        instalando = true
+        informe = "Generando el certificado del equipo…"
+        colorAviso = tintaPiedra
+        aplicar()
+        ventana.displayIfNeeded()
         let (codigo, texto) = pedir("POST", "/certificado/instalar", "{\"cerrarNavegadores\":true}")
+        instalando = false
         if codigo != 200 {
             informe = jsonDe(texto)["error"] as? String ?? (texto.isEmpty ? "No se pudo instalar el certificado" : texto)
             colorAviso = tintaPeligro
