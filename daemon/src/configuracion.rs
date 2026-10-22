@@ -184,6 +184,9 @@ pub fn completar(params: &mut Parametros, estado: &Estado, token_defecto: &str, 
     if params.url.trim().is_empty() {
         params.url = url_de_estado(estado);
     }
+    if estado.endpoint_elegido && estado.host_modo != "personalizado" && crate::estado::es_direccion_local(&params.url) {
+        params.url = crate::estado::SERVIDOR_PUBLICO.to_string();
+    }
     if params.token_archivo.trim().is_empty() {
         params.token_archivo = token_defecto.to_string();
     }
@@ -203,7 +206,7 @@ pub fn url_de_estado(estado: &Estado) -> String {
     if estado.host_modo == "personalizado" {
         return estado.host_personalizado.trim().trim_end_matches('/').to_string();
     }
-    estado.direccion_global.trim().trim_end_matches('/').to_string()
+    crate::estado::SERVIDOR_PUBLICO.to_string()
 }
 
 fn copiar_si_hay(destino: &mut String, valor: Option<&String>) {
@@ -456,11 +459,11 @@ mod pruebas {
         fs::write(dir.join("dispositivo.token"), "token-de-prueba").unwrap();
         let mut flags = HashMap::new();
         aplicar_en(&dir, &mut flags).unwrap();
-        assert_eq!(flags.get("url").map(String::as_str), Some("http://192.168.20.253:7590"));
+        assert_eq!(flags.get("url").map(String::as_str), Some(crate::estado::SERVIDOR_PUBLICO));
         assert!(dir.join(ARCHIVO).is_file());
         let mut otra = HashMap::new();
         aplicar_en(&dir, &mut otra).unwrap();
-        assert_eq!(otra.get("url").map(String::as_str), Some("http://192.168.20.253:7590"));
+        assert_eq!(otra.get("url").map(String::as_str), Some(crate::estado::SERVIDOR_PUBLICO));
         let raw = fs::read(dir.join(ARCHIVO)).unwrap();
         assert!(!raw.windows(8).any(|ventana| ventana == b"token-de"));
         assert!(!String::from_utf8_lossy(&raw).contains("192.168.20.253"));
