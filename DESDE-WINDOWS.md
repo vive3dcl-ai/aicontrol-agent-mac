@@ -112,7 +112,7 @@ El consumo es el CPU y la RAM del proceso del daemon, no los de la barra de men�
 
 La ventana sigue los mismos pasos que la bandeja de Windows. Habla solo con la tarjeta.
 
-1. Servidor. Global usa la dirección que manda el panel. Si esa dirección está vacía o es loopback, queda `http://192.168.20.253:7590`. Self-host borra el token y guarda la URL.
+1. Servidor. La opción global se muestra como «Conectar a AIcontrol», sin dirección. Prueba el servicio local y, si no responde, usa el servicio público. Self-host borra el token y guarda solo su URL.
 2. Certificado. El botón pasa a la confirmación.
 3. Navegadores. «Instalar y aplicar» llama a `POST /certificado/instalar` con `cerrarNavegadores: true`.
 4. Cuenta. Correo y clave de enrolamiento, `POST /activar`.

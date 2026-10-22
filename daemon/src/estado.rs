@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use crate::politica::{self, Grupo, Politica, Receta, Regla, Sitio};
 use crate::programas::Programa;
@@ -230,6 +232,15 @@ pub fn guardar(ruta: &Path, estado: &Estado) -> Result<(), String> {
     fs::write(ruta, texto).map_err(|error| error.to_string())
 }
 
+pub const SERVIDOR_PUBLICO: &str = "https://aai.latinrouter.ai";
+
+struct BaseCache {
+    hasta: Instant,
+    url: String,
+}
+
+static BASE_CACHE: Mutex<Option<BaseCache>> = Mutex::new(None);
+
 pub fn url_servidor(flags_url: &str, estado: &Estado) -> Result<String, String> {
     if !estado.endpoint_elegido {
         return Err("falta elegir el servidor".into());
@@ -240,13 +251,96 @@ pub fn url_servidor(flags_url: &str, estado: &Estado) -> Result<String, String> 
         }
         return Ok(estado.host_personalizado.trim_end_matches('/').to_string());
     }
-    if !estado.direccion_global.is_empty() {
-        return Ok(estado.direccion_global.trim_end_matches('/').to_string());
+    if let Ok(cache) = BASE_CACHE.lock() {
+        if let Some(item) = cache.as_ref() {
+            if item.hasta > Instant::now() {
+                return Ok(item.url.clone());
+            }
+        }
     }
-    if !flags_url.is_empty() {
-        return Ok(flags_url.trim_end_matches('/').to_string());
+    let elegida = elegir_base(&candidatos_locales(flags_url, &estado.direccion_global), crate::red::responde);
+    if let Ok(mut cache) = BASE_CACHE.lock() {
+        *cache = Some(BaseCache { hasta: Instant::now() + Duration::from_secs(20), url: elegida.clone() });
     }
-    Err("falta elegir el servidor".into())
+    Ok(elegida)
+}
+
+pub fn recordar_direccion(actual: &str, flags_url: &str) -> String {
+    if es_privada(actual) {
+        return actual.trim().trim_end_matches('/').to_string();
+    }
+    let flags = flags_url.trim().trim_end_matches('/');
+    if es_privada(flags) {
+        return flags.to_string();
+    }
+    let actual = actual.trim().trim_end_matches('/');
+    if !actual.is_empty() && !es_loopback_url(actual) {
+        return actual.to_string();
+    }
+    SERVIDOR_PUBLICO.to_string()
+}
+
+fn recordar_servidor(actual: &str, nueva: &str) -> String {
+    if es_privada(actual) && !es_direccion_local(nueva) {
+        return actual.trim().trim_end_matches('/').to_string();
+    }
+    let nueva = nueva.trim().trim_end_matches('/');
+    if nueva.is_empty() {
+        return actual.trim().trim_end_matches('/').to_string();
+    }
+    nueva.to_string()
+}
+
+pub fn candidatos_locales(flags_url: &str, direccion_global: &str) -> Vec<String> {
+    let mut salida = Vec::new();
+    for candidato in [flags_url, direccion_global, "http://127.0.0.1:7590"] {
+        let limpio = candidato.trim().trim_end_matches('/');
+        if limpio.is_empty() || !es_direccion_local(limpio) || salida.iter().any(|item: &String| item == limpio) {
+            continue;
+        }
+        salida.push(limpio.to_string());
+    }
+    salida
+}
+
+pub fn elegir_base(locales: &[String], mut sonda: impl FnMut(&str) -> bool) -> String {
+    for local in locales {
+        if sonda(local) {
+            return local.clone();
+        }
+    }
+    SERVIDOR_PUBLICO.to_string()
+}
+
+pub fn es_direccion_local(url: &str) -> bool {
+    let texto = url.trim().trim_end_matches('/').to_ascii_lowercase();
+    if texto.contains("aai.latinrouter.ai") {
+        return false;
+    }
+    if es_loopback_url(&texto) {
+        return true;
+    }
+    let Ok(destino) = crate::red::parsear_url(&texto) else {
+        return false;
+    };
+    ipv4_privada(&destino.host)
+}
+
+fn es_privada(url: &str) -> bool {
+    es_direccion_local(url) && !es_loopback_url(url)
+}
+
+fn es_loopback_url(url: &str) -> bool {
+    let texto = url.trim().to_ascii_lowercase();
+    texto.contains("://127.0.0.1") || texto.contains("://localhost") || texto.contains("://[::1]") || texto.contains("://0.0.0.0")
+}
+
+fn ipv4_privada(host: &str) -> bool {
+    let Ok(ip) = host.parse::<std::net::Ipv4Addr>() else {
+        return false;
+    };
+    let [a, b, _, _] = ip.octets();
+    a == 10 || (a == 172 && (16..32).contains(&b)) || (a == 192 && b == 168) || (a == 169 && b == 254)
 }
 
 pub fn normalizar_endpoint(valor: &str) -> Result<String, String> {
@@ -279,7 +373,7 @@ pub fn aplicar_respuesta(estado: &mut Estado, respuesta: &Value) {
     }
     if let Some(direccion) = respuesta.get("direccionGlobal").and_then(Value::as_str) {
         if estado.host_modo != "personalizado" {
-            estado.direccion_global = direccion.to_string();
+            estado.direccion_global = recordar_servidor(&estado.direccion_global, direccion);
         }
     }
     if let Some(id) = respuesta.get("dispositivoId").and_then(Value::as_str) {
@@ -488,5 +582,25 @@ mod pruebas {
         assert_eq!(url_servidor("http://127.0.0.1:7590", &estado).unwrap(), "http://10.0.0.5:7590");
         estado.host_personalizado.clear();
         assert!(url_servidor("http://127.0.0.1:7590", &estado).is_err());
+    }
+
+    #[test]
+    fn el_global_prueba_el_local_y_cae_en_aicontrol() {
+        let locales = candidatos_locales("http://10.1.1.8:7590", "https://aai.latinrouter.ai");
+        assert_eq!(locales, vec!["http://10.1.1.8:7590".to_string(), "http://127.0.0.1:7590".to_string()]);
+        assert!(!es_direccion_local("https://aai.latinrouter.ai"));
+        assert_eq!(elegir_base(&locales, |base| base.contains("10.1.1.8")), "http://10.1.1.8:7590");
+        assert_eq!(elegir_base(&locales, |_| false), SERVIDOR_PUBLICO);
+        assert_eq!(recordar_direccion("http://192.168.20.253:7590", "https://aai.latinrouter.ai"), "http://192.168.20.253:7590");
+        assert_eq!(recordar_direccion("http://127.0.0.1:7590", ""), SERVIDOR_PUBLICO);
+        let mut estado = Estado::default();
+        estado.host_modo = "global".into();
+        estado.direccion_global = "http://192.168.1.20:7590".into();
+        aplicar_respuesta(&mut estado, &json!({ "direccionGlobal": SERVIDOR_PUBLICO }));
+        assert_eq!(estado.direccion_global, "http://192.168.1.20:7590");
+        estado.host_modo = "personalizado".into();
+        estado.direccion_global.clear();
+        aplicar_respuesta(&mut estado, &json!({ "direccionGlobal": SERVIDOR_PUBLICO }));
+        assert!(estado.direccion_global.is_empty());
     }
 }

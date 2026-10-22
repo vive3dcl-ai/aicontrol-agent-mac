@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 pub struct Destino {
@@ -115,8 +115,38 @@ pub fn get_bytes(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
     Ok(buf[corte + 4..].to_vec())
 }
 
+pub fn responde(base: &str) -> bool {
+    let Ok(destino) = parsear_url(&format!("{}/salud", base.trim_end_matches('/'))) else {
+        return false;
+    };
+    let Ok(mut stream) = conectar_en(&destino, Duration::from_secs(2), true) else {
+        return false;
+    };
+    let peticion = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: application/json\r\nConnection: close\r\n\r\n",
+        path = destino.path,
+        host = destino.host_header,
+    );
+    if stream.write_all(peticion.as_bytes()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 512];
+    let leido = stream.read(&mut buf).unwrap_or(0);
+    let texto = String::from_utf8_lossy(&buf[..leido]);
+    partir_http(texto.split('\0').next().unwrap_or("")).map(|(estado, _)| (200..300).contains(&estado)).unwrap_or(false)
+}
+
 fn conectar(destino: &Destino, espera: Duration) -> Result<Box<dyn ReadWrite>, String> {
-    let tcp = TcpStream::connect((destino.host.as_str(), destino.port)).map_err(|error| format!("no se pudo conectar: {error}"))?;
+    conectar_en(destino, espera, false)
+}
+
+fn conectar_en(destino: &Destino, espera: Duration, corto: bool) -> Result<Box<dyn ReadWrite>, String> {
+    let tcp = if corto {
+        let socket = (destino.host.as_str(), destino.port).to_socket_addrs().map_err(|error| error.to_string())?.next().ok_or("sin dirección")?;
+        TcpStream::connect_timeout(&socket, espera).map_err(|error| format!("no se pudo conectar: {error}"))?
+    } else {
+        TcpStream::connect((destino.host.as_str(), destino.port)).map_err(|error| format!("no se pudo conectar: {error}"))?
+    };
     tcp.set_read_timeout(Some(espera)).ok();
     tcp.set_write_timeout(Some(espera)).ok();
     if destino.esquema == "https" {

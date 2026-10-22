@@ -18,11 +18,11 @@ let tituloVerde = NSColor(srgbRed: 74 / 255, green: 222 / 255, blue: 128 / 255, 
 let tituloAzul = NSColor(srgbRed: 125 / 255, green: 211 / 255, blue: 252 / 255, alpha: 1)
 let tituloRojo = NSColor(srgbRed: 248 / 255, green: 113 / 255, blue: 113 / 255, alpha: 1)
 
-func pedir(_ metodo: String, _ ruta: String, _ cuerpo: String?) -> (Int, String) {
+func pedir(_ metodo: String, _ ruta: String, _ cuerpo: String?, esperaSeg: Double = 30) -> (Int, String) {
     guard let url = URL(string: base + ruta) else { return (0, "") }
     var pedido = URLRequest(url: url)
     pedido.httpMethod = metodo
-    pedido.timeoutInterval = 30
+    pedido.timeoutInterval = esperaSeg
     if let cuerpo {
         pedido.httpBody = Data(cuerpo.utf8)
         pedido.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -35,7 +35,7 @@ func pedir(_ metodo: String, _ ruta: String, _ cuerpo: String?) -> (Int, String)
         texto = String(data: datos ?? Data(), encoding: .utf8) ?? ""
         espera.signal()
     }.resume()
-    _ = espera.wait(timeout: .now() + 31)
+    _ = espera.wait(timeout: .now() + esperaSeg + 1)
     return (codigo, texto)
 }
 
@@ -65,6 +65,11 @@ func colorTitulo(_ conexion: String) -> NSColor {
     }
 }
 
+func altoAviso(_ texto: String) -> CGFloat {
+    let lineas = max(1, texto.split(separator: "\n", omittingEmptySubsequences: false).count)
+    return min(120, max(36, CGFloat(lineas) * 18))
+}
+
 func tituloConexion(_ conexion: String) -> String {
     switch conexion {
     case "estable": return "Conectado"
@@ -90,6 +95,32 @@ func iconoEstado(_ conexion: String, tenue: Bool) -> NSImage {
     guard let cg = ctx.makeImage() else { return NSImage() }
     let imagen = NSImage(cgImage: cg, size: NSSize(width: lado, height: lado))
     imagen.isTemplate = false
+    return imagen
+}
+
+final class CeldaCampo: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        super.drawingRect(forBounds: rect).insetBy(dx: 8, dy: 2)
+    }
+}
+
+final class CeldaSecreta: NSSecureTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        super.drawingRect(forBounds: rect).insetBy(dx: 8, dy: 2)
+    }
+}
+
+func logoTexto() -> NSImage {
+    let imagen = NSImage(size: NSSize(width: 200, height: 52))
+    imagen.lockFocus()
+    let attrs: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 22, weight: .semibold),
+        .foregroundColor: tintaClara,
+    ]
+    let texto = "AIcontrol" as NSString
+    let tam = texto.size(withAttributes: attrs)
+    texto.draw(at: NSPoint(x: (200 - tam.width) / 2, y: (52 - tam.height) / 2), withAttributes: attrs)
+    imagen.unlockFocus()
     return imagen
 }
 
@@ -168,7 +199,7 @@ final class Orbe: NSView {
     }
 }
 
-final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate {
     let barra = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     let ventana = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
     let fondo = FondoTarjeta(frame: NSRect(x: 0, y: 0, width: 340, height: 420))
@@ -236,12 +267,9 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func armar() {
-        logo.image = logoMarca()
+        logo.image = logoMarca() ?? logoTexto()
         logo.imageScaling = .scaleProportionallyDown
         logo.imageAlignment = .alignCenter
-        if logo.image == nil {
-            logo.isHidden = true
-        }
         titulo.alignment = .center
         titulo.font = NSFont.systemFont(ofSize: 20, weight: .semibold)
         titulo.textColor = tituloRojo
@@ -267,6 +295,9 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         estiloCampo(correo, "Correo del usuario")
         estiloCampo(clave, "Clave de enrolamiento")
         estiloCampo(claveBaja, "Clave de Config")
+        for campo in [host, correo, clave, claveBaja] {
+            campo.delegate = self
+        }
         modoGlobal.target = self
         modoGlobal.action = #selector(marcarGlobal)
         modoPropio.target = self
@@ -294,6 +325,14 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         campo.drawsBackground = true
         campo.focusRingType = .none
         campo.font = NSFont.systemFont(ofSize: 13)
+        let celda: NSTextFieldCell = campo is NSSecureTextField ? CeldaSecreta() : CeldaCampo()
+        celda.font = campo.font
+        celda.textColor = tintaClara
+        celda.backgroundColor = tintaCampo
+        celda.isBordered = false
+        celda.drawsBackground = true
+        celda.placeholderAttributedString = NSAttributedString(string: marca, attributes: [.foregroundColor: tintaPiedra, .font: NSFont.systemFont(ofSize: 13)])
+        campo.cell = celda
         campo.wantsLayer = true
         campo.layer?.cornerRadius = 8
         campo.layer?.borderWidth = 1
@@ -317,10 +356,20 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ])
     }
 
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            principalPulsado()
+            return true
+        }
+        return false
+    }
+
     func ponerIcono(_ conexion: String, tenue: Bool) {
         let imagen = iconoEstado(conexion, tenue: tenue)
         barra.button?.image = imagen
         barra.button?.image?.isTemplate = false
+        let cert = (estado["certificado"] as? String) == "instalado" ? "Certificado instalado" : "Certificado pendiente"
+        barra.button?.toolTip = "AIcontrol — \(tituloConexion(conexion))\n\(cert). Clic: abrir. Derecho: menú."
     }
 
     @objc func clicBarra(_ sender: NSStatusBarButton) {
@@ -414,8 +463,12 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
             animando = false
             if cerrando {
                 cerrando = false
+                let eraAjustes = modoAjustes
                 ventana.orderOut(nil)
                 ventana.alphaValue = 1
+                if eraAjustes {
+                    _ = pedir("POST", "/ajustes/bloquear", nil)
+                }
             } else {
                 ventana.alphaValue = 1
                 ventana.setFrameOrigin(animHasta)
@@ -614,8 +667,9 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 aviso.textColor = tintaPeligro
                 fila(aviso, 48)
             } else if !informe.isEmpty {
+                aviso.stringValue = informe
                 aviso.textColor = tintaOk
-                fila(aviso, 36)
+                fila(aviso, altoAviso(informe))
             }
             if !editando {
                 clave.placeholderString = "Clave de enrolamiento"
@@ -625,9 +679,9 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
             principal.title = "Activar"
             fila(principal, 36)
         case "listo":
-            if !informe.isEmpty { fila(aviso, 36) }
+            if !informe.isEmpty { fila(aviso, altoAviso(informe)) }
         case "clave":
-            if !informe.isEmpty { fila(aviso, 36) }
+            if !informe.isEmpty { fila(aviso, altoAviso(informe)) }
             if !editando { clave.placeholderString = "Clave de Config" }
             fila(clave, 32)
             principal.title = "Entrar"
@@ -755,13 +809,16 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         colorAviso = tintaPiedra
         aplicar()
         ventana.displayIfNeeded()
-        let (codigo, texto) = pedir("POST", "/certificado/instalar", "{\"cerrarNavegadores\":true}")
+        let (codigo, texto) = pedir("POST", "/certificado/instalar", "{\"cerrarNavegadores\":true}", esperaSeg: 45)
         instalando = false
+        let cuerpo = jsonDe(texto)
         if codigo != 200 {
-            informe = jsonDe(texto)["error"] as? String ?? (texto.isEmpty ? "No se pudo instalar el certificado" : texto)
+            informe = cuerpo["error"] as? String ?? (texto.isEmpty ? "No se pudo instalar el certificado" : texto)
             colorAviso = tintaPeligro
         } else {
-            informe = ""
+            let pasos = cuerpo["pasos"] as? [String] ?? []
+            informe = pasos.joined(separator: "\n")
+            colorAviso = tintaOk
         }
         preguntar = false
         refrescar()
@@ -769,6 +826,10 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func activar() {
+        informe = "Enlazando la cuenta…"
+        colorAviso = tintaPiedra
+        aplicar()
+        ventana.displayIfNeeded()
         let cuerpo = "{\"correo\":\"\(escapar(correo.stringValue))\",\"clave\":\"\(escapar(clave.stringValue))\"}"
         let (codigo, texto) = pedir("POST", "/activar", cuerpo)
         if codigo != 204 {

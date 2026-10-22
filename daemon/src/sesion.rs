@@ -304,8 +304,8 @@ pub fn elegir_endpoint(rutas: &Rutas, modo: &str, host: &str) -> Result<(), Stri
     estado.host_personalizado = host;
     if estado.host_modo == "personalizado" {
         estado.direccion_global.clear();
-    } else if estado.direccion_global.trim().is_empty() || crate::ui::es_loopback(&estado.direccion_global) {
-        estado.direccion_global = crate::ui::url_visible(&estado.direccion_global, &rutas.url);
+    } else {
+        estado.direccion_global = estado::recordar_direccion(&estado.direccion_global, &rutas.url);
     }
     estado.conexion = "conectando".into();
     estado::guardar(&rutas.estado, &estado)?;
