@@ -200,7 +200,13 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var pulso = false
     var informe = ""
     var colorAviso = tintaPiedra
-    var anclada = false
+    var animando = false
+    var cerrando = false
+    var animInicio = Date()
+    var animMs = 0.48
+    var fadeMs = 0.20
+    var animDesde = NSPoint.zero
+    var animHasta = NSPoint.zero
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         barra.button?.imagePosition = .imageOnly
@@ -212,16 +218,20 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ventana.isOpaque = false
         ventana.backgroundColor = .clear
         ventana.hasShadow = true
-        ventana.level = .floating
+        ventana.level = .statusBar
+        ventana.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         ventana.isReleasedWhenClosed = false
         ventana.appearance = NSAppearance(named: .darkAqua)
         ventana.contentView = fondo
         armar()
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.refrescar() }
-        Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { [weak self] _ in self?.girarOrbe() }
+        Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+            self?.girarOrbe()
+            self?.cuadro()
+        }
         refrescar()
         let (codigo, _) = pedir("GET", "/estado.json", nil)
-        if codigo != 200 || pasoActual() != "listo" { mostrar() }
+        if codigo != 200 || pasoActual() != "listo" { mostrar(entrada: true) }
     }
 
     func armar() {
@@ -322,46 +332,163 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
             barra.menu = nil
             return
         }
-        if ventana.isVisible { ventana.orderOut(nil) } else { abrirNormal() }
+        if ventana.isVisible && !cerrando {
+            iniciarCierre()
+        } else {
+            modoAjustes = false
+            faseBaja = 0
+            faseCierre = false
+            preguntar = false
+            mostrar(entrada: true)
+        }
     }
 
     @objc func abrirNormal() {
-        modoAjustes = false
-        faseBaja = 0
-        faseCierre = false
-        mostrar()
+        alternar(ajustes: false)
     }
 
     @objc func abrirAjustes() {
-        _ = pedir("POST", "/ajustes/bloquear", nil)
-        modoAjustes = true
-        faseBaja = 0
-        faseCierre = false
-        direccionLista = false
-        mostrar()
+        alternar(ajustes: true)
     }
 
-    func mostrar() {
+    func alternar(ajustes: Bool) {
+        let visible = ventana.isVisible
+        if visible && modoAjustes == ajustes && !cerrando {
+            iniciarCierre()
+            return
+        }
+        if ajustes {
+            _ = pedir("POST", "/ajustes/bloquear", nil)
+            direccionLista = false
+        }
+        modoAjustes = ajustes
+        faseBaja = 0
+        faseCierre = false
+        preguntar = false
+        mostrar(entrada: !visible || cerrando)
+    }
+
+    func mostrar(entrada: Bool) {
         refrescar()
-        let primera = !anclada
         aplicar()
-        if primera {
-            anclar()
-            anclada = true
+        if entrada {
+            let lugares = colocar(alto: ventana.frame.height)
+            animDesde = lugares.origen
+            animHasta = lugares.destino
+            animInicio = Date()
+            animMs = 0.48
+            fadeMs = 0.20
+            cerrando = false
+            animando = true
+            ventana.alphaValue = 0
+            ventana.setFrameOrigin(animDesde)
         }
         ventana.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func anclar() {
+    func iniciarCierre() {
+        if cerrando { return }
+        let lugares = colocar(alto: ventana.frame.height)
+        animDesde = ventana.frame.origin
+        animHasta = lugares.origen
+        animInicio = Date()
+        animMs = 0.28
+        fadeMs = 0.22
+        cerrando = true
+        animando = true
+    }
+
+    func cuadro() {
+        guard animando, ventana.isVisible || cerrando else { return }
+        let pasado = Date().timeIntervalSince(animInicio)
+        let t = min(1, pasado / animMs)
+        let suave = cerrando ? t * t * t : 1 - pow(1 - t, 3)
+        let x = animDesde.x + (animHasta.x - animDesde.x) * suave
+        let y = animDesde.y + (animHasta.y - animDesde.y) * suave
+        ventana.setFrameOrigin(NSPoint(x: x, y: y))
+        let fundido = min(1, pasado / max(fadeMs, 0.01))
+        ventana.alphaValue = cerrando ? CGFloat(1 - fundido) : CGFloat(fundido)
+        if t >= 1 {
+            animando = false
+            if cerrando {
+                cerrando = false
+                ventana.orderOut(nil)
+                ventana.alphaValue = 1
+            } else {
+                ventana.alphaValue = 1
+                ventana.setFrameOrigin(animHasta)
+            }
+        }
+    }
+
+    func puntoAncla() -> NSPoint {
         guard let boton = barra.button, let origen = boton.window else {
-            ventana.center()
-            return
+            let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+            return NSPoint(x: visible.midX, y: visible.maxY)
         }
         let rect = origen.convertToScreen(boton.convert(boton.bounds, to: nil))
-        let x = max(8, rect.midX - 170)
-        let y = max(8, rect.minY - ventana.frame.height - 8)
-        ventana.setFrameOrigin(NSPoint(x: x, y: y))
+        return NSPoint(x: rect.midX, y: rect.midY)
+    }
+
+    func colocar(alto: CGFloat) -> (destino: NSPoint, origen: NSPoint) {
+        let ancla = puntoAncla()
+        let pantalla = NSScreen.screens.first { NSMouseInRect(ancla, $0.frame, false) } ?? NSScreen.main
+        let marco = pantalla?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let trabajo = pantalla?.visibleFrame ?? marco
+        let lado = ladoDeBarra(pantalla: marco, trabajo: trabajo, ancla: ancla)
+        let margen: CGFloat = 12
+        let ancho: CGFloat = 340
+        var x = trabajo.maxX - ancho - margen
+        var y = trabajo.minY + margen
+        if lado == "arriba" {
+            y = trabajo.maxY - alto - margen
+        } else if lado == "izquierda" {
+            x = trabajo.minX + margen
+            y = ancla.y - 28
+        } else if lado == "derecha" {
+            y = ancla.y - 28
+        }
+        let topeX = max(trabajo.minX + margen, trabajo.maxX - ancho - margen)
+        let topeY = max(trabajo.minY + margen, trabajo.maxY - alto - margen)
+        x = min(max(trabajo.minX + margen, x), topeX)
+        y = min(max(trabajo.minY + margen, y), topeY)
+        let recorrido = alto + 16
+        var origenX = x
+        var origenY = y
+        switch lado {
+        case "arriba": origenY = y + recorrido
+        case "abajo": origenY = y - recorrido
+        case "izquierda": origenX = x - recorrido
+        default: origenX = x + recorrido
+        }
+        return (NSPoint(x: x, y: y), NSPoint(x: origenX, y: origenY))
+    }
+
+    func ladoDeBarra(pantalla: NSRect, trabajo: NSRect, ancla: NSPoint) -> String {
+        var lado = "abajo"
+        var mayor: CGFloat = -1
+        for (nombre, valor) in [
+            ("abajo", trabajo.minY - pantalla.minY),
+            ("arriba", pantalla.maxY - trabajo.maxY),
+            ("izquierda", trabajo.minX - pantalla.minX),
+            ("derecha", pantalla.maxX - trabajo.maxX),
+        ] where valor > mayor {
+            mayor = valor
+            lado = nombre
+        }
+        if ancla.y >= trabajo.maxY {
+            lado = "arriba"
+        } else if ancla.y <= trabajo.minY && trabajo.minY > pantalla.minY {
+            lado = "abajo"
+        } else if ancla.x <= trabajo.minX && trabajo.minX > pantalla.minX {
+            lado = "izquierda"
+        } else if ancla.x >= trabajo.maxX && trabajo.maxX < pantalla.maxX {
+            lado = "derecha"
+        } else if mayor < 4 {
+            lado = "abajo"
+        }
+        return lado
     }
 
     func refrescar() {
@@ -538,9 +665,9 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
             y += alto + 10
         }
         let altoVentana = max(180, y + 8)
-        let arriba = ventana.frame.maxY
-        let origenX = ventana.frame.minX
-        ventana.setFrame(NSRect(x: anclada ? origenX : ventana.frame.minX, y: anclada ? arriba - altoVentana : ventana.frame.minY, width: 340, height: altoVentana), display: true)
+        let origen = animando ? ventana.frame.origin : colocar(alto: altoVentana).destino
+        ventana.setFrame(NSRect(x: origen.x, y: origen.y, width: 340, height: altoVentana), display: true)
+        if !animando { animHasta = origen }
         fondo.frame = ventana.contentView?.bounds ?? fondo.frame
         fondo.needsDisplay = true
     }
@@ -643,7 +770,7 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
         _ = pedir("POST", "/cerrar", nil)
-        ventana.orderOut(nil)
+        iniciarCierre()
     }
 
     @objc func desinstalar() {
