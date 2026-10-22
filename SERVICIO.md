@@ -56,7 +56,7 @@ En macOS el archivo es el zip `GOBMAC01` descrito arriba. El agente que ya está
 
 ## Cómo se sube una versión
 
-Cada versión de un sistema lleva dos archivos distintos. Los dos se publican juntos en `POST /v1/actualizaciones`, con sesión de plataforma. El cuerpo es JSON:
+Cada versión de un sistema lleva dos archivos distintos. Los dos se publican juntos en `POST /v1/actualizaciones`. El cuerpo es JSON:
 
 - `sistema`: `windows`, `linux` o `darwin`.
 - `version`: `mayor.menor.parche`.
@@ -64,9 +64,11 @@ Cada versión de un sistema lleva dos archivos distintos. Los dos se publican ju
 - `archivoNombre`, `sha256`, `archivoBase64`: el actualizador automático. En Windows es el paquete `GOBBIN01` que el agente ya instalado sabe aplicar. En macOS es el zip `GOBMAC01`. En Linux es el paquete `GOBLIN01`. El nombre no puede ser el del instalador.
 - `instaladorNombre`, `instaladorSha256`, `instaladorBase64`: el instalador que se entrega a un cliente nuevo. En Windows es `AIcontrol-setup.exe`. En macOS es `AIcontrol.pkg`. En Linux es `AIcontrol-setup.deb`.
 
-El SHA-256 es el del archivo en binario, en hexadecimal de 64 caracteres, y tiene que coincidir con el base64. El servidor guarda los dos bajo `data/actualizaciones/{sistema}/{version}/`, cada uno con su nombre. Volver a publicar la misma versión reemplaza el actualizador. Si el cuerpo no trae instalador, conserva el que ya estaba.
+El SHA-256 es el del archivo en binario, en hexadecimal de 64 caracteres, y tiene que coincidir con el base64. El servidor guarda los dos bajo `data/actualizaciones/{sistema}/{version}/`, cada uno con su nombre. Si el cuerpo no trae instalador, conserva el que ya estaba.
 
-En el panel de plataforma, Organizaciones, el formulario Publicar agente pide los dos archivos y arma ese JSON. Publicar no manda la actualización a la flota.
+La llamada lleva `Authorization: Bearer`. Una sesión de plataforma deja la versión aprobada. Un token de actualizador, creado en el panel en Actualizadores, empieza por `act_` y usa el mismo encabezado. Ese token solo puede subir los sistemas que tiene permitidos; si el sistema no está en el permiso, la respuesta es 403. La subida con token queda pendiente hasta que un admin la aprueba. Rechazarla no la borra del historial. Una versión ya aprobada no se pisa: hay que subir otra versión y la respuesta es 409. Una pendiente del mismo sistema y versión se puede reemplazar. El cuerpo grande se envía al API (`https://aai.latinrouter.ai/v1/actualizaciones`), no al panel.
+
+El tenant, en Actualizaciones, solo ve la última versión aprobada. Aprobar no manda la actualización a la flota.
 
 El responsable, en Actualizaciones, usa Actualizar para el paquete automático y Descargar, a la derecha, para bajar el instalador de la última versión publicada de ese sistema. Descargar llama a `GET /v1/actualizaciones/instalador?sistema=windows` y solo responde si esa versión tiene instalador. El archivo que llega lleva la versión en el nombre: `AIcontrol-setup.exe` de la 0.1.9 se baja como `AIcontrol-setup-0.1.9.exe`.
 
