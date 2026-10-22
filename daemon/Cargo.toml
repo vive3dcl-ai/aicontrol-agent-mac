@@ -1,6 +1,6 @@
 [package]
 name = "gobernanza-agente-macos"
-version = "0.1.13"
+version = "0.1.0"
 edition = "2021"
 description = "Agente de AIcontrol para macOS. Daemon de ITsec. S.A. y barra de menú, con el mismo proxy local que Windows."
 publish = false

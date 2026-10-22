@@ -25,12 +25,13 @@ app="$salida/pkgroot/Applications/AIcontrol.app"
 swiftc -O -framework AppKit -framework Foundation -o "$app/Contents/MacOS/AIcontrol" "$raiz/app/Sources/AIcontrol/main.swift"
 cp "$bin" "$app/Contents/MacOS/AIcontrol-daemon"
 cp "$raiz/app/Info.plist" "$app/Contents/Info.plist"
+version=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$raiz/daemon/Cargo.toml" | head -1)
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" -c "Set :CFBundleVersion $version" "$app/Contents/Info.plist"
 cp "$raiz/instalador/local.itsec.aicontrol.plist" "$app/Contents/Resources/local.itsec.aicontrol.plist"
 cp "$raiz/instalador/local.itsec.aicontrol.menu.plist" "$app/Contents/Resources/local.itsec.aicontrol.menu.plist"
 cp "$raiz/app/Resources/logo.bgra" "$app/Contents/Resources/logo.bgra"
 chmod 755 "$app/Contents/MacOS/AIcontrol" "$app/Contents/MacOS/AIcontrol-daemon" "$raiz/instalador/scripts/preinstall" "$raiz/instalador/scripts/postinstall"
 "$app/Contents/MacOS/AIcontrol-daemon" empaquetar --dir "$app" --salida "$salida/AIcontrol-actualizacion.zip"
-version=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$raiz/daemon/Cargo.toml" | head -1)
 pkgbuild --root "$salida/pkgroot" --identifier local.itsec.aicontrol --version "$version" --install-location / --scripts "$raiz/instalador/scripts" "$salida/AIcontrol.pkg"
 if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   codesign --force --deep --sign "$SIGN_IDENTITY" "$app"

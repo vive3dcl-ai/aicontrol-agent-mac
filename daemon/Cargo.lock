@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "gobernanza-agente-macos"
-version = "0.1.13"
+version = "0.1.0"
 dependencies = [
  "rcgen",
  "ring",
