@@ -70,7 +70,16 @@ La llamada lleva `Authorization: Bearer`. El token `act_` se pega en el archivo 
 
 El tenant, en Actualizaciones, solo ve la última versión aprobada. Aprobar no manda la actualización a la flota.
 
-El responsable, en Actualizaciones, usa Actualizar para el paquete automático y Descargar, a la derecha, para bajar el instalador de la última versión publicada de ese sistema. Descargar llama a `GET /v1/actualizaciones/instalador?sistema=windows` y solo responde si esa versión tiene instalador. El archivo que llega lleva la versión en el nombre: `AIcontrol-setup.exe` de la 0.1.9 se baja como `AIcontrol-setup-0.1.9.exe`.
+### Registro macOS 0.1.9
+
+El 23-10-2026 se cargó `darwin` 0.1.9 con el actualizador y el instalador en una sola solicitud. La API aceptó la carga y la dejó **pendiente de aprobación administrativa**. Al aprobarla, el tenant podrá solicitar la actualización automática y descargar el instalador desde Actualizaciones.
+
+- Actualizador automático: `AIcontrol-actualizacion-0.1.9.zip` (`GOBMAC01`), SHA-256 `5ccd89c4de2256ea66408f9841cfde16ee4a5339bd96b4bab756091b92712a2e`.
+- Instalador para equipos nuevos: `AIcontrol.pkg`, SHA-256 `b4cde10c526a2fa6b9e7eb56d9a19584c13c7020bd6cde3e5d3e11ab061a5c56`. La descarga del panel agrega la versión al nombre: `AIcontrol-0.1.9.pkg`.
+- Cambios: recuperación del enlace cuando falta la clave local, mejoras de conexión y certificados, y reporte de uso de CPU y RAM.
+- Distribución: este `.pkg` no tiene firma Developer ID ni notarización; macOS puede mostrar una advertencia de Gatekeeper. La firma y notarización quedan pendientes del proceso externo descrito en «Firma».
+
+El responsable, en Actualizaciones, usa Actualizar para el paquete automático y Descargar, a la derecha, para bajar el instalador de la última versión publicada de ese sistema. Descargar llama a `GET /v1/actualizaciones/instalador?sistema=windows` o `GET /v1/actualizaciones/instalador?sistema=darwin` y solo responde si esa versión tiene instalador. El archivo que llega lleva la versión en el nombre: `AIcontrol-setup.exe` de Windows 0.1.9 se baja como `AIcontrol-setup-0.1.9.exe`; el paquete macOS `AIcontrol.pkg` de 0.1.9 se baja como `AIcontrol-0.1.9.pkg`.
 
 ## Desinstalación
 
