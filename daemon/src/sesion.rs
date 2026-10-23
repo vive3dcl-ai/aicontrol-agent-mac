@@ -199,12 +199,13 @@ pub fn activar(rutas: &Rutas, correo: &str, clave: &str) -> Result<(), String> {
     cuerpo["clave"] = serde_json::Value::String(clave.to_string());
     let token = fs::read_to_string(&rutas.token).unwrap_or_default();
     let token = token.trim();
-    let respuesta = if token.is_empty() {
+    let clave_definitiva = crate::configuracion::clave_definitiva();
+    let respuesta = if token.is_empty() || clave_definitiva.is_empty() {
         red::post_json(&red::unir(&url, "/v1/dispositivos/activar"), None, &cuerpo)
     } else {
-        enviar(&red::unir(&url, "/v1/dispositivos/activar"), token, &cuerpo)
+        red::post_agente(&red::unir(&url, "/v1/dispositivos/activar"), Some(token), &clave_definitiva, &cuerpo)
     }
-    .map_err(mensaje_enlace)?;
+    .map_err(|error| mensaje_enlace(error, correo, clave))?;
     recordar_clave(&respuesta);
     if let Some(nuevo) = respuesta.get("token").and_then(|valor| valor.as_str()) {
         if !nuevo.is_empty() {
@@ -221,10 +222,68 @@ pub fn activar(rutas: &Rutas, correo: &str, clave: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn mensaje_enlace(error: String) -> String {
-    let Some(inicio) = error.find('{') else { return "no se pudo enlazar la cuenta".into() };
-    let Ok(cuerpo) = serde_json::from_str::<serde_json::Value>(&error[inicio..]) else { return "no se pudo enlazar la cuenta".into() };
-    cuerpo.get("error").and_then(|valor| valor.as_str()).unwrap_or("no se pudo enlazar la cuenta").to_string()
+fn mensaje_enlace(error: String, correo: &str, clave: &str) -> String {
+    let detalle = error.find('{').and_then(|inicio| {
+        serde_json::from_str::<serde_json::Value>(&error[inicio..]).ok()
+    }).and_then(|cuerpo| cuerpo.get("error").and_then(|valor| valor.as_str()).map(str::to_string))
+        .filter(|texto| !texto.trim().is_empty())
+        .unwrap_or(error);
+    let mut detalle = detalle;
+    if !correo.is_empty() {
+        detalle = detalle.replace(correo, "[correo]").replace(&correo.to_ascii_lowercase(), "[correo]");
+    }
+    if !clave.is_empty() {
+        detalle = detalle.replace(clave, "[clave]");
+    }
+    let detalle: String = detalle.chars()
+        .map(|caracter| if caracter.is_control() { ' ' } else { caracter })
+        .take(180)
+        .collect();
+    let detalle = detalle.trim();
+    if detalle.is_empty() {
+        "no se pudo enlazar la cuenta".into()
+    } else {
+        format!("No se pudo enlazar: {detalle}")
+    }
+}
+
+#[cfg(test)]
+mod pruebas_baja {
+    use super::*;
+
+    #[test]
+    fn sin_clave_no_desinstala() {
+        let rutas = Rutas { url: String::new(), token: PathBuf::from("token"), estado: PathBuf::from("estado"), tenant: String::new(), clave: String::new() };
+        let error = autorizar_baja(&rutas, "").unwrap_err();
+        assert!(error.contains("clave de Config"));
+        let error = autorizar_baja(&rutas, "   ").unwrap_err();
+        assert!(error.contains("clave de Config"));
+    }
+}
+
+#[cfg(test)]
+mod pruebas_mensaje_enlace {
+    use super::mensaje_enlace;
+
+    #[test]
+    fn muestra_el_rechazo_del_servidor_sin_exponer_credenciales() {
+        let mensaje = mensaje_enlace(
+            r#"HTTP 401: {"error":"Acceso rechazado para usuario@example.com con clave secreta"}"#.into(),
+            "usuario@example.com",
+            "clave secreta",
+        );
+        assert!(mensaje.contains("Acceso rechazado"));
+        assert!(mensaje.contains("[correo]"));
+        assert!(mensaje.contains("[clave]"));
+        assert!(!mensaje.contains("usuario@example.com"));
+        assert!(!mensaje.contains("clave secreta"));
+    }
+
+    #[test]
+    fn conserva_errores_de_red_no_json_para_diagnostico() {
+        let mensaje = mensaje_enlace("invalid peer certificate: UnknownIssuer".into(), "", "");
+        assert!(mensaje.contains("UnknownIssuer"));
+    }
 }
 
 fn normalizar_clave_config(clave: &str) -> String {
@@ -429,10 +488,13 @@ pub fn sincronizar_entorno(rutas: &Rutas) {
     if sistema::es_servicio() {
         let dir_ca = rutas.dir().join("ca");
         let crt = dir_ca.join("gobernanza-ca.crt");
-        if crt.is_file() && (ca::requiere_instalacion(&dir_ca) || !sistema::certificado_instalado()) {
+        let _ = ca::cargar_o_crear(&dir_ca);
+        if crt.is_file() && (ca::requiere_instalacion(&dir_ca) || !sistema::certificado_instalado()) && !intento_reciente(&dir_ca) {
             if let Err(error) = sistema::instalar_ca(&crt) {
                 let _ = std::fs::write(rutas.dir().join("filtro-error.txt"), &error);
+                let _ = std::fs::write(dir_ca.join("confianza-intento"), b"1");
             } else {
+                let _ = std::fs::remove_file(dir_ca.join("confianza-intento"));
                 ca::marcar_instalada(&dir_ca);
             }
         }
@@ -449,6 +511,9 @@ pub fn sincronizar_entorno(rutas: &Rutas) {
                 let _ = std::fs::write(rutas.dir().join("filtro-error.txt"), &error);
                 return;
             }
+            if filtro_vigente() {
+                sistema::cerrar_navegadores();
+            }
         }
         if filtro_vigente() {
             let _ = std::fs::remove_file(rutas.dir().join("filtro-error.txt"));
@@ -458,6 +523,11 @@ pub fn sincronizar_entorno(rutas: &Rutas) {
     if filtro_presente() || sistema::leer_pac().trim() == navegador::PAC {
         restaurar_filtro(rutas);
     }
+}
+
+fn intento_reciente(dir: &Path) -> bool {
+    let Ok(meta) = fs::metadata(dir.join("confianza-intento")) else { return false };
+    meta.modified().ok().and_then(|momento| momento.elapsed().ok()).is_some_and(|pasado| pasado.as_secs() < 120)
 }
 
 fn anotar_certificado(ruta: &Path, presente: bool) {

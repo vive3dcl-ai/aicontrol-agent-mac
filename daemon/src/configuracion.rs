@@ -318,10 +318,33 @@ fn dpapi_flags(flags: u32, proteger: bool, datos: &[u8]) -> Result<Vec<u8>, Stri
 
 #[cfg(not(windows))]
 fn cifrar(carpeta: &Path, plano: &[u8]) -> Result<Vec<u8>, String> {
+    let clave = clave_local(carpeta)?;
+    sellar_con(&clave, plano)
+}
+
+#[cfg(not(windows))]
+fn descifrar(carpeta: &Path, blob: &[u8]) -> Result<Vec<u8>, String> {
+    if blob.len() < 12 {
+        return Err("configuración incompleta".into());
+    }
+    let claves = claves_guardadas(carpeta);
+    let Some(indice) = primera_que_abre(&claves, blob) else {
+        return Err("no se pudo abrir la configuración cifrada".into());
+    };
+    // El llavero puede tener otra clave que la que selló config.dat. Si se
+    // prefiere a ciegas, la clave definitiva queda ilegible y el latido sale
+    // en claro. Se conserva la clave que sí abre y se copia al llavero.
+    if indice > 0 || leer_llavero().is_none() {
+        let _ = escribir_llavero(&claves[indice]);
+    }
+    abrir_con(&claves[indice], blob)
+}
+
+#[cfg(not(windows))]
+fn sellar_con(clave: &[u8; 32], plano: &[u8]) -> Result<Vec<u8>, String> {
     use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
     use ring::rand::{SecureRandom, SystemRandom};
-    let clave = clave_local(carpeta)?;
-    let llave = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &clave).map_err(|_| "clave de configuración inválida".to_string())?);
+    let llave = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, clave).map_err(|_| "clave de configuración inválida".to_string())?);
     let azar = SystemRandom::new();
     let mut nonce = [0u8; 12];
     azar.fill(&mut nonce).map_err(|_| "no hay aleatorio para cifrar".to_string())?;
@@ -333,13 +356,12 @@ fn cifrar(carpeta: &Path, plano: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(windows))]
-fn descifrar(carpeta: &Path, blob: &[u8]) -> Result<Vec<u8>, String> {
+fn abrir_con(clave: &[u8; 32], blob: &[u8]) -> Result<Vec<u8>, String> {
     use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
     if blob.len() < 12 {
         return Err("configuración incompleta".into());
     }
-    let clave = clave_local(carpeta)?;
-    let llave = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &clave).map_err(|_| "clave de configuración inválida".to_string())?);
+    let llave = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, clave).map_err(|_| "clave de configuración inválida".to_string())?);
     let (nonce, cifrado) = blob.split_at(12);
     let mut cuerpo = cifrado.to_vec();
     let plano = llave.open_in_place(Nonce::assume_unique_for_key(nonce.try_into().unwrap()), Aad::empty(), &mut cuerpo).map_err(|_| "no se pudo abrir la configuración cifrada".to_string())?;
@@ -347,52 +369,95 @@ fn descifrar(carpeta: &Path, blob: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(windows))]
+fn primera_que_abre(claves: &[[u8; 32]], blob: &[u8]) -> Option<usize> {
+    claves.iter().position(|clave| abrir_con(clave, blob).is_ok())
+}
+
+#[cfg(not(windows))]
 fn clave_local(carpeta: &Path) -> Result<[u8; 32], String> {
-    if let Some(clave) = clave_llavero() {
-        return Ok(clave);
-    }
-    use ring::rand::{SecureRandom, SystemRandom};
-    fs::create_dir_all(carpeta).map_err(|error| error.to_string())?;
-    let ruta = carpeta.join("config.key");
-    if let Ok(bytes) = fs::read(&ruta) {
-        if bytes.len() == 32 {
-            let mut clave = [0u8; 32];
-            clave.copy_from_slice(&bytes);
-            return Ok(clave);
+    if let Ok(raw) = fs::read(carpeta.join(ARCHIVO)) {
+        if raw.len() > MAGIA.len() + 12 && &raw[..MAGIA.len()] == MAGIA {
+            let blob = &raw[MAGIA.len()..];
+            let claves = claves_guardadas(carpeta);
+            if let Some(indice) = primera_que_abre(&claves, blob) {
+                if indice > 0 || leer_llavero().is_none() {
+                    let _ = escribir_llavero(&claves[indice]);
+                }
+                return Ok(claves[indice]);
+            }
         }
     }
+    if let Some(clave) = leer_llavero().or_else(|| leer_clave_archivo(carpeta)) {
+        return Ok(clave);
+    }
+    crear_clave(carpeta)
+}
+
+#[cfg(not(windows))]
+fn claves_guardadas(carpeta: &Path) -> Vec<[u8; 32]> {
+    let mut claves = Vec::new();
+    if let Some(clave) = leer_llavero() {
+        claves.push(clave);
+    }
+    if let Some(clave) = leer_clave_archivo(carpeta) {
+        if !claves.contains(&clave) {
+            claves.push(clave);
+        }
+    }
+    claves
+}
+
+#[cfg(not(windows))]
+fn leer_clave_archivo(carpeta: &Path) -> Option<[u8; 32]> {
+    let bytes = fs::read(carpeta.join("config.key")).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    let mut clave = [0u8; 32];
+    clave.copy_from_slice(&bytes);
+    Some(clave)
+}
+
+#[cfg(not(windows))]
+fn crear_clave(carpeta: &Path) -> Result<[u8; 32], String> {
+    use ring::rand::{SecureRandom, SystemRandom};
+    fs::create_dir_all(carpeta).map_err(|error| error.to_string())?;
     let mut clave = [0u8; 32];
     SystemRandom::new().fill(&mut clave).map_err(|_| "no hay aleatorio para la clave".to_string())?;
+    let ruta = carpeta.join("config.key");
     fs::write(&ruta, clave).map_err(|error| error.to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&ruta, fs::Permissions::from_mode(0o600));
     }
+    let _ = escribir_llavero(&clave);
     Ok(clave)
 }
 
-fn clave_llavero() -> Option<[u8; 32]> {
+fn escribir_llavero(clave: &[u8; 32]) -> bool {
     #[cfg(not(target_os = "macos"))]
     {
-        return None;
+        let _ = clave;
+        return false;
     }
     #[cfg(target_os = "macos")]
     {
-        if let Some(clave) = leer_llavero() {
-            return Some(clave);
-        }
-        let mut clave = [0u8; 32];
-        if ring::rand::SystemRandom::new().fill(&mut clave).is_err() {
-            return None;
+        if leer_llavero().as_ref() == Some(clave) {
+            return true;
         }
         let hex: String = clave.iter().map(|byte| format!("{byte:02x}")).collect();
-        let estado = std::process::Command::new("security")
+        std::process::Command::new("security")
             .args(["add-generic-password", "-U", "-a", "aicontrol", "-s", "GobernanzaAgenteConfig", "-w", &hex, "/Library/Keychains/System.keychain"])
             .status()
-            .ok()?;
-        if estado.success() { Some(clave) } else { None }
+            .map(|estado| estado.success())
+            .unwrap_or(false)
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn leer_llavero() -> Option<[u8; 32]> {
+    None
 }
 
 #[cfg(target_os = "macos")]
@@ -468,5 +533,18 @@ mod pruebas {
         assert!(!raw.windows(8).any(|ventana| ventana == b"token-de"));
         assert!(!String::from_utf8_lossy(&raw).contains("192.168.20.253"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn la_clave_del_archivo_abre_cuando_la_del_llavero_no_coincide() {
+        let buena = [4u8; 32];
+        let ajena = [8u8; 32];
+        let blob = sellar_con(&buena, br#"{"claveDefinitiva":"gdv_prueba"}"#).unwrap();
+        let indice = primera_que_abre(&[ajena, buena], &blob).unwrap();
+        assert_eq!(indice, 1);
+        let plano = abrir_con(&buena, &blob).unwrap();
+        assert!(std::str::from_utf8(&plano).unwrap().contains("claveDefinitiva"));
+        assert!(primera_que_abre(&[ajena], &blob).is_none());
     }
 }

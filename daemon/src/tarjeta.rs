@@ -44,7 +44,13 @@ fn atender(stream: &mut impl ReadWrite, rutas: &Rutas) -> Result<(), String> {
         }
         ("GET", "/estado.json") => {
             let estado = estado::leer(&rutas.estado);
-            let vista = estado::vista_tarjeta(&estado, &rutas.url, rutas.token.is_file());
+            let mut vista = estado::vista_tarjeta(&estado, &rutas.url, rutas.token.is_file());
+            // Exponer solo si hay una clave disponible, nunca su contenido. La
+            // tarjeta necesita distinguir una cuenta enlazada de una sesión
+            // que ya no puede cifrar latidos.
+            vista["tieneClaveDefinitiva"] = serde_json::Value::Bool(
+                !crate::configuracion::clave_definitiva().is_empty(),
+            );
             escribir(stream, 200, "application/json", &vista.to_string())
         }
         ("GET", "/") => escribir(stream, 200, "text/html; charset=utf-8", &pagina(&estado::leer(&rutas.estado))),

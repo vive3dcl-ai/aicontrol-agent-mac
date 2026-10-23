@@ -141,9 +141,10 @@ fn servicio(flags: &HashMap<String, String>) -> Result<(), String> {
         "desconectado".into()
     };
     estado::guardar(&rutas.estado, &estado)?;
-    println!("servicio de latido cada {segundos}s");
+    println!("AIcontrol {} servicio de latido cada {segundos}s", env!("CARGO_PKG_VERSION"));
     let copia = clonar(&rutas);
     std::thread::spawn(move || tarjeta::servir(copia));
+    let _ = ca::cargar_o_crear(&rutas.dir().join("ca"));
     let copia = clonar(&rutas);
     std::thread::spawn(move || {
         if let Ok(autoridad) = ca::cargar_o_crear(&copia.dir().join("ca")) {

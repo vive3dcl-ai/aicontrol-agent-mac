@@ -1,6 +1,6 @@
 [package]
 name = "gobernanza-agente-macos"
-version = "0.1.0"
+version = "0.1.9"
 edition = "2021"
 description = "Agente de AIcontrol para macOS. Daemon de ITsec. S.A. y barra de menú, con el mismo proxy local que Windows."
 publish = false
@@ -21,3 +21,4 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 sha2 = "0.10"
 webpki-roots = "0.26"
 ring = "0.17"
+time = { version = "0.3.6", default-features = false }

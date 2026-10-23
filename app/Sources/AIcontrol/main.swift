@@ -110,6 +110,10 @@ final class CeldaSecreta: NSSecureTextFieldCell {
     }
 }
 
+final class VentanaAgente: NSWindow {
+    override var canBecomeKey: Bool { true }
+}
+
 func logoTexto() -> NSImage {
     let imagen = NSImage(size: NSSize(width: 200, height: 52))
     imagen.lockFocus()
@@ -146,9 +150,9 @@ func logoMarca() -> NSImage? {
                 let r = Int(src[i * 4 + 2])
                 let a = Int(src[i * 4 + 3])
                 if a == 0 { continue }
-                pix[i * 4] = UInt8(r * 255 / a)
-                pix[i * 4 + 1] = UInt8(g * 255 / a)
-                pix[i * 4 + 2] = UInt8(b * 255 / a)
+                pix[i * 4] = UInt8(r * a / 255)
+                pix[i * 4 + 1] = UInt8(g * a / 255)
+                pix[i * 4 + 2] = UInt8(b * a / 255)
                 pix[i * 4 + 3] = UInt8(a)
             }
         }
@@ -201,7 +205,7 @@ final class Orbe: NSView {
 
 final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFieldDelegate {
     let barra = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    let ventana = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
+    let ventana = VentanaAgente(contentRect: NSRect(x: 0, y: 0, width: 340, height: 420), styleMask: [.borderless], backing: .buffered, defer: false)
     let fondo = FondoTarjeta(frame: NSRect(x: 0, y: 0, width: 340, height: 420))
     let logo = NSImageView()
     let orbe = Orbe(frame: NSRect(x: 0, y: 0, width: 132, height: 132))
@@ -222,12 +226,15 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
 
     var estado: [String: Any] = [:]
     var modoAjustes = false
+    var forzarCuenta = false
     var preguntar = false
     var enLinea = false
     var modoConexion = "global"
     var direccionLista = false
     var faseBaja = 0
     var faseCierre = false
+    var servidorConfirmado = false
+    var servidorLista = false
     var pulso = false
     var informe = ""
     var colorAviso = tintaPiedra
@@ -292,7 +299,7 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
         direccion.drawsBackground = false
         direccion.isBezeled = false
         estiloCampo(host, "https://tu-servidor")
-        estiloCampo(correo, "Correo del usuario")
+        estiloCampo(correo, "Mail")
         estiloCampo(clave, "Clave de enrolamiento")
         estiloCampo(claveBaja, "Clave de Config")
         for campo in [host, correo, clave, claveBaja] {
@@ -325,12 +332,19 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
         campo.drawsBackground = true
         campo.focusRingType = .none
         campo.font = NSFont.systemFont(ofSize: 13)
-        let celda: NSTextFieldCell = campo is NSSecureTextField ? CeldaSecreta() : CeldaCampo()
+        let celda: NSTextFieldCell = campo is NSSecureTextField
+            ? CeldaSecreta(textCell: campo.stringValue)
+            : CeldaCampo(textCell: campo.stringValue)
+        // Las celdas personalizadas nacen no editables; reactivar la entrada
+        // es necesario para que se puedan escribir el correo y las claves.
+        celda.isEditable = true
+        celda.isSelectable = true
         celda.font = campo.font
         celda.textColor = tintaClara
         celda.backgroundColor = tintaCampo
         celda.isBordered = false
         celda.drawsBackground = true
+        celda.placeholderString = marca
         celda.placeholderAttributedString = NSAttributedString(string: marca, attributes: [.foregroundColor: tintaPiedra, .font: NSFont.systemFont(ofSize: 13)])
         campo.cell = celda
         campo.wantsLayer = true
@@ -580,9 +594,12 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
         let token = estado["tieneToken"] as? Bool ?? false
         let ajustes = estado["ajustes"] as? Bool ?? false
         if modoAjustes { return ajustes ? "ajustes" : "clave" }
+        if forzarCuenta { return "cuenta" }
         if !endpoint { return "servidor" }
+        if !servidorConfirmado && (!enlazado || !token) { return "servidor" }
         if !certificadoListo { return preguntar ? "navegadores" : "certificado" }
-        if !enlazado || !token { return "cuenta" }
+        let tieneClave = estado["tieneClaveDefinitiva"] as? Bool ?? true
+        if !enlazado || !token || !tieneClave { return "cuenta" }
         return "listo"
     }
 
@@ -634,6 +651,11 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
         if muestraCert { fila(certificado, 22) }
         switch paso {
         case "servidor":
+            if !servidorLista {
+                modoConexion = (estado["hostModo"] as? String) == "personalizado" ? "personalizado" : "global"
+                host.stringValue = estado["hostPersonalizado"] as? String ?? ""
+                servidorLista = true
+            }
             aviso.stringValue = "Self-host usa un servidor propio. AIcontrol prueba este equipo y, si no responde, sigue por el servicio público."
             aviso.textColor = tintaPiedra
             fila(aviso, 64)
@@ -662,7 +684,8 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
                 fila(principal, 36)
             }
         case "cuenta":
-            if informe.isEmpty && (estado["tieneToken"] as? Bool ?? true) == false {
+            let tieneClave = estado["tieneClaveDefinitiva"] as? Bool ?? true
+            if informe.isEmpty && (!tieneClave || (estado["tieneToken"] as? Bool ?? true) == false) {
                 aviso.stringValue = "Hay que volver a enlazar el equipo. Escribe el correo y la clave de enrolamiento."
                 aviso.textColor = tintaPeligro
                 fila(aviso, 48)
@@ -686,6 +709,10 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
             fila(clave, 32)
             principal.title = "Entrar"
             fila(principal, 36)
+            secundario.title = "Ingresar datos de cuenta"
+            secundario.target = self
+            secundario.action = #selector(ingresarDatosCuenta)
+            fila(secundario, 34)
         case "ajustes":
             if faseCierre {
                 aviso.stringValue = "El agente se detiene hasta el próximo reinicio. El certificado se queda y el filtro vuelve al arrancar."
@@ -729,6 +756,10 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
             fila(aviso, 40)
         }
         if aviso.stringValue.isEmpty { aviso.isHidden = true }
+        if paso != "clave" {
+            secundario.target = self
+            secundario.action = #selector(cerrarHastaInicio)
+        }
         let elegido = tintaClara
         estiloBoton(modoGlobal, relleno: modoConexion == "global" ? elegido : nil, tinta: modoConexion == "global" ? tintaFondo : tintaPiedra, borde: modoConexion == "global" ? elegido : tintaBorde)
         estiloBoton(modoPropio, relleno: modoConexion == "personalizado" ? elegido : nil, tinta: modoConexion == "personalizado" ? tintaFondo : tintaPiedra, borde: modoConexion == "personalizado" ? elegido : tintaBorde)
@@ -784,6 +815,15 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
         }
     }
 
+    @objc func ingresarDatosCuenta() {
+        modoAjustes = false
+        forzarCuenta = true
+        informe = ""
+        clave.stringValue = ""
+        aplicar()
+        ventana.makeKeyAndOrderFront(nil)
+    }
+
     func elegir(_ modo: String, _ host: String, _ ruta: String) {
         let cuerpo = "{\"modo\":\"\(escapar(modo))\",\"host\":\"\(escapar(host))\"}"
         let (codigo, texto) = pedir("POST", ruta, cuerpo)
@@ -794,6 +834,7 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
             informe = "Dirección guardada"
             colorAviso = tintaOk
         } else {
+            servidorConfirmado = true
             informe = ""
         }
         preguntar = false
@@ -836,6 +877,7 @@ final class Agente: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextFie
             informe = texto.isEmpty ? "No se pudo enlazar la cuenta" : texto
             colorAviso = tintaPeligro
         } else {
+            forzarCuenta = false
             clave.stringValue = ""
             informe = "Cuenta enlazada"
             colorAviso = tintaOk

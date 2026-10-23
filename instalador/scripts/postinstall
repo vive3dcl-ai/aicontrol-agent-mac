@@ -12,7 +12,8 @@ launchctl kickstart -k system/local.itsec.aicontrol || true
 usuario="$(stat -f %Su /dev/console || true)"
 if [[ -n "$usuario" && "$usuario" != "root" ]]; then
   uid="$(id -u "$usuario")"
+  launchctl bootout "gui/$uid/local.itsec.aicontrol.menu" || true
   launchctl bootstrap "gui/$uid" /Library/LaunchAgents/local.itsec.aicontrol.menu.plist || true
-  launchctl kickstart "gui/$uid/local.itsec.aicontrol.menu" || true
+  launchctl kickstart -k "gui/$uid/local.itsec.aicontrol.menu" || true
 fi
 "/Applications/AIcontrol.app/Contents/MacOS/AIcontrol-daemon" aviso-instalacion || true

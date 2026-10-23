@@ -74,17 +74,16 @@ pub fn post_json(url: &str, token: Option<&str>, cuerpo: &Value) -> Result<Value
     let mut stream = conectar(&destino, Duration::from_secs(60))?;
     stream.write_all(peticion.as_bytes()).map_err(|error| error.to_string())?;
     stream.write_all(&payload).map_err(|error| error.to_string())?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).map_err(|error| error.to_string())?;
-    let texto = String::from_utf8(buf).map_err(|_| "respuesta no es utf-8".to_string())?;
-    let (estado, cuerpo_texto) = partir_http(&texto)?;
+    let buf = leer_respuesta(&mut stream)?;
+    let (estado, cuerpo_bytes) = desarmar_respuesta(&buf)?;
     if !(200..300).contains(&estado) {
+        let cuerpo_texto = String::from_utf8_lossy(&cuerpo_bytes);
         return Err(format!("HTTP {estado}: {cuerpo_texto}"));
     }
-    if cuerpo_texto.trim().is_empty() {
+    if cuerpo_bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(Value::Null);
     }
-    serde_json::from_str(cuerpo_texto).map_err(|error| format!("respuesta no es JSON: {error}"))
+    serde_json::from_slice(&cuerpo_bytes).map_err(|error| format!("respuesta no es JSON: {error}"))
 }
 
 pub fn get_bytes(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
@@ -103,16 +102,128 @@ pub fn get_bytes(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
     peticion.push_str("\r\n");
     let mut stream = conectar(&destino, Duration::from_secs(10 * 60))?;
     stream.write_all(peticion.as_bytes()).map_err(|error| error.to_string())?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).map_err(|error| error.to_string())?;
-    let corte = buf.windows(4).position(|marca| marca == b"\r\n\r\n").ok_or("respuesta HTTP incompleta")?;
-    let cabeceras = String::from_utf8_lossy(&buf[..corte]);
-    let linea = cabeceras.lines().next().ok_or("sin línea de estado")?;
-    let codigo = linea.split_whitespace().nth(1).ok_or("estado HTTP inválido")?.parse::<u16>().map_err(|_| "código HTTP inválido".to_string())?;
+    let buf = leer_respuesta(&mut stream)?;
+    let (codigo, cuerpo) = desarmar_respuesta(&buf)?;
     if !(200..300).contains(&codigo) {
         return Err(format!("HTTP {codigo}"));
     }
-    Ok(buf[corte + 4..].to_vec())
+    Ok(cuerpo)
+}
+
+const MAX_RESPUESTA: usize = 4 * 1024 * 1024;
+
+fn leer_respuesta(stream: &mut impl Read) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    loop {
+        if let Some(fin) = fin_respuesta(&buf)? {
+            if buf.len() >= fin {
+                buf.truncate(fin);
+                return Ok(buf);
+            }
+        }
+        if buf.len() >= MAX_RESPUESTA {
+            return Err("respuesta HTTP demasiado grande".into());
+        }
+        let mut bloque = [0u8; 8192];
+        match stream.read(&mut bloque) {
+            Ok(0) => return Ok(buf),
+            Ok(leidos) => buf.extend_from_slice(&bloque[..leidos]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+}
+
+fn metadatos_respuesta(buf: &[u8]) -> Result<Option<(usize, u16, Option<usize>, bool)>, String> {
+    let Some(corte) = buf.windows(4).position(|marca| marca == b"\r\n\r\n") else { return Ok(None) };
+    let cabeceras = String::from_utf8_lossy(&buf[..corte]);
+    let mut lineas = cabeceras.lines();
+    let linea = lineas.next().ok_or("sin línea de estado")?;
+    let estado = linea.split_whitespace().nth(1).ok_or("estado HTTP inválido")?
+        .parse::<u16>().map_err(|_| "código HTTP inválido".to_string())?;
+    let mut largo = None;
+    let mut fragmentada = false;
+    for linea in lineas {
+        let Some((nombre, valor)) = linea.split_once(':') else { continue };
+        if nombre.eq_ignore_ascii_case("content-length") {
+            largo = Some(valor.trim().parse::<usize>().map_err(|_| "Content-Length inválido".to_string())?);
+        } else if nombre.eq_ignore_ascii_case("transfer-encoding") && valor.to_ascii_lowercase().contains("chunked") {
+            fragmentada = true;
+        }
+    }
+    Ok(Some((corte + 4, estado, largo, fragmentada)))
+}
+
+fn fin_respuesta(buf: &[u8]) -> Result<Option<usize>, String> {
+    let Some((cuerpo, estado, largo, fragmentada)) = metadatos_respuesta(buf)? else { return Ok(None) };
+    if (100..200).contains(&estado) || estado == 204 || estado == 304 {
+        return Ok(Some(cuerpo));
+    }
+    if fragmentada {
+        return fin_chunked(buf, cuerpo);
+    }
+    if let Some(largo) = largo {
+        return cuerpo.checked_add(largo).map(Some).ok_or_else(|| "Content-Length inválido".into());
+    }
+    Ok(None)
+}
+
+fn fin_chunked(buf: &[u8], mut cursor: usize) -> Result<Option<usize>, String> {
+    loop {
+        let Some(fin_linea) = buscar_crlf(buf, cursor) else { return Ok(None) };
+        let linea = String::from_utf8_lossy(&buf[cursor..fin_linea]);
+        let hexadecimal = linea.split(';').next().unwrap_or("").trim();
+        let largo = usize::from_str_radix(hexadecimal, 16).map_err(|_| "tamaño de bloque HTTP inválido".to_string())?;
+        cursor = fin_linea + 2;
+        if largo == 0 {
+            loop {
+                let Some(fin_trailer) = buscar_crlf(buf, cursor) else { return Ok(None) };
+                if fin_trailer == cursor { return Ok(Some(cursor + 2)) }
+                cursor = fin_trailer + 2;
+            }
+        }
+        let fin = cursor.checked_add(largo).and_then(|pos| pos.checked_add(2))
+            .ok_or_else(|| "tamaño de bloque HTTP inválido".to_string())?;
+        if buf.len() < fin { return Ok(None) }
+        if &buf[fin - 2..fin] != b"\r\n" { return Err("bloque HTTP mal terminado".into()) }
+        cursor = fin;
+    }
+}
+
+fn buscar_crlf(buf: &[u8], desde: usize) -> Option<usize> {
+    buf.get(desde..)?.windows(2).position(|par| par == b"\r\n").map(|offset| desde + offset)
+}
+
+fn desarmar_respuesta(buf: &[u8]) -> Result<(u16, Vec<u8>), String> {
+    let Some((inicio, estado, largo, fragmentada)) = metadatos_respuesta(buf)? else { return Err("respuesta HTTP incompleta".into()) };
+    let cuerpo = &buf[inicio..];
+    if (100..200).contains(&estado) || estado == 204 || estado == 304 {
+        return Ok((estado, Vec::new()));
+    }
+    if fragmentada {
+        return Ok((estado, decodificar_chunked(buf, inicio)?));
+    }
+    if let Some(largo) = largo {
+        if cuerpo.len() < largo { return Err("respuesta HTTP incompleta".into()) }
+        return Ok((estado, cuerpo[..largo].to_vec()));
+    }
+    Ok((estado, cuerpo.to_vec()))
+}
+
+fn decodificar_chunked(buf: &[u8], mut cursor: usize) -> Result<Vec<u8>, String> {
+    fin_chunked(buf, cursor)?.ok_or("respuesta HTTP fragmentada incompleta")?;
+    let mut decodificado = Vec::new();
+    loop {
+        let fin_linea = buscar_crlf(buf, cursor).ok_or("respuesta HTTP fragmentada incompleta")?;
+        let linea = String::from_utf8_lossy(&buf[cursor..fin_linea]);
+        let bloque = usize::from_str_radix(linea.split(';').next().unwrap_or("").trim(), 16)
+            .map_err(|_| "tamaño de bloque HTTP inválido".to_string())?;
+        cursor = fin_linea + 2;
+        if bloque == 0 { return Ok(decodificado) }
+        let fin_bloque = cursor.checked_add(bloque).ok_or("tamaño de bloque HTTP inválido")?;
+        decodificado.extend_from_slice(&buf[cursor..fin_bloque]);
+        cursor = fin_bloque + 2;
+    }
 }
 
 pub fn responde(base: &str) -> bool {
@@ -175,6 +286,23 @@ pub fn partir_http(texto: &str) -> Result<(u16, &str), String> {
 mod pruebas {
     use super::*;
 
+    struct LectorCierreAbrupto {
+        respuesta: Vec<u8>,
+        enviada: bool,
+    }
+
+    impl Read for LectorCierreAbrupto {
+        fn read(&mut self, salida: &mut [u8]) -> std::io::Result<usize> {
+            if self.enviada {
+                return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "sin close_notify"));
+            }
+            self.enviada = true;
+            let largo = self.respuesta.len().min(salida.len());
+            salida[..largo].copy_from_slice(&self.respuesta[..largo]);
+            Ok(largo)
+        }
+    }
+
     #[test]
     fn separa_http_y_https() {
         let local = parsear_url("http://127.0.0.1:7590/v1/dispositivos/latido").unwrap();
@@ -183,5 +311,37 @@ mod pruebas {
         let seguro = parsear_url("https://ejemplo.test").unwrap();
         assert_eq!(seguro.port, 443);
         assert!(parsear_url("ftp://ejemplo.test").is_err());
+    }
+
+    #[test]
+    fn procesa_204_aunque_el_servidor_cierre_tls_sin_close_notify() {
+        let bytes = b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_vec();
+        let mut lector = LectorCierreAbrupto { respuesta: bytes, enviada: false };
+        let respuesta = leer_respuesta(&mut lector).unwrap();
+        let (codigo, cuerpo) = desarmar_respuesta(&respuesta).unwrap();
+        assert_eq!(codigo, 204);
+        assert!(cuerpo.is_empty());
+    }
+
+    #[test]
+    fn respeta_content_length_sin_esperar_el_cierre_tls() {
+        let bytes = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".to_vec();
+        let mut lector = LectorCierreAbrupto { respuesta: bytes, enviada: false };
+        let respuesta = leer_respuesta(&mut lector).unwrap();
+        let (codigo, cuerpo) = desarmar_respuesta(&respuesta).unwrap();
+        assert_eq!(codigo, 200);
+        assert_eq!(cuerpo, b"ok");
+    }
+
+    #[test]
+    fn decodifica_respuesta_chunked() {
+        let json = r#"{"error":"rechazado"}"#;
+        let bytes = format!(
+            "HTTP/1.1 400 Bad Request\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{}\r\n0\r\n\r\n",
+            json.len(), json
+        );
+        let (codigo, cuerpo) = desarmar_respuesta(bytes.as_bytes()).unwrap();
+        assert_eq!(codigo, 400);
+        assert_eq!(String::from_utf8(cuerpo).unwrap(), json);
     }
 }

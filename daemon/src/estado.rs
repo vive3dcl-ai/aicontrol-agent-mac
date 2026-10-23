@@ -173,7 +173,7 @@ pub fn ahora_rfc3339() -> String {
     format!("{ano:04}-{mes:02}-{dia:02}T{:02}:{:02}:{:02}Z", resto / 3600, (resto % 3600) / 60, resto % 60)
 }
 
-fn fecha_de_dias(mut dias: u64) -> (i32, u32, u32) {
+pub(crate) fn fecha_de_dias(mut dias: u64) -> (i32, u32, u32) {
     let mut ano = 1970i32;
     loop {
         let largo = if es_bisiesto(ano) { 366 } else { 365 };
@@ -494,6 +494,7 @@ pub fn vista_tarjeta(estado: &Estado, url_principal: &str, tiene_token: bool) ->
         "endpointElegido": estado.endpoint_elegido,
         "urlPrincipal": url_principal,
         "tieneToken": tiene_token,
+        "versionAgente": crate::sistema::VERSION_AGENTE,
     })
 }
 

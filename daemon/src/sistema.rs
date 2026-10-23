@@ -66,12 +66,17 @@ pub fn carpeta_programa() -> PathBuf {
     raiz().join("Applications").join("AIcontrol.app")
 }
 
+pub const VERSION_AGENTE: &str = env!("CARGO_PKG_VERSION");
+pub const NOMBRE_CA: &str = "aicontrol";
+pub const ORGANIZACION_CA: &str = "Itsec S.A.";
+const NOMBRE_CA_ANTERIOR: &str = "Gobernanza 2";
+
 pub fn inventario_base() -> serde_json::Value {
     let mut cuerpo = serde_json::json!({
         "hostname": hostname(),
         "sistema": sistema(),
         "versionSo": version_so(),
-        "versionAgente": env!("CARGO_PKG_VERSION"),
+        "versionAgente": VERSION_AGENTE,
         "cpu": cpu_texto(),
         "ramMb": ram_mb(),
         "usuarioSesion": usuario(),
@@ -248,6 +253,13 @@ fn rss_mb() -> u32 {
             }
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        return uso_proceso_macos()
+            .map(|uso| (uso.resident_size / (1024 * 1024)).min(u32::MAX as u64) as u32)
+            .unwrap_or(0);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     1
 }
 
@@ -272,8 +284,86 @@ fn cpu_propio() -> f64 {
         *guardia = Some((ahora, ticks));
         return porcentaje;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        let ahora = Instant::now();
+        let Some(uso) = uso_proceso_macos() else { return 0.0 };
+        static PREVIO: std::sync::Mutex<Option<(Instant, u64)>> = std::sync::Mutex::new(None);
+        let mut guardia = PREVIO.lock().unwrap_or_else(|error| error.into_inner());
+        let porcentaje = if let Some((antes, cpu_antes)) = *guardia {
+            let transcurrido_ns = ahora.saturating_duration_since(antes).as_nanos() as f64;
+            if transcurrido_ns > 0.0 {
+                let delta_ns = uso.cpu_ns.saturating_sub(cpu_antes) as f64;
+                (delta_ns / transcurrido_ns * 100.0).clamp(0.0, 100.0)
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        *guardia = Some((ahora, uso.cpu_ns));
+        return porcentaje;
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     0.0
+}
+
+#[cfg(target_os = "macos")]
+struct UsoProcesoMacos {
+    cpu_ns: u64,
+    resident_size: u64,
+}
+
+#[cfg(target_os = "macos")]
+fn uso_proceso_macos() -> Option<UsoProcesoMacos> {
+    use std::ffi::{c_int, c_void};
+
+    #[repr(C)]
+    struct RusageInfoV2 {
+        uuid: [u8; 16],
+        user_time: u64,
+        system_time: u64,
+        pkg_idle_wkups: u64,
+        interrupt_wkups: u64,
+        pageins: u64,
+        wired_size: u64,
+        resident_size: u64,
+        phys_footprint: u64,
+        proc_start_abstime: u64,
+        proc_exit_abstime: u64,
+        child_user_time: u64,
+        child_system_time: u64,
+        child_pkg_idle_wkups: u64,
+        child_interrupt_wkups: u64,
+        child_pageins: u64,
+        child_elapsed_abstime: u64,
+        diskio_bytesread: u64,
+        diskio_byteswritten: u64,
+    }
+
+    #[link(name = "proc")]
+    unsafe extern "C" {
+        fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut c_void) -> c_int;
+    }
+
+    let mut info = std::mem::MaybeUninit::<RusageInfoV2>::zeroed();
+    // SAFETY: RUSAGE_INFO_V2 is flavor 2 and `info` has the matching C layout.
+    let resultado = unsafe {
+        proc_pid_rusage(
+            std::process::id() as c_int,
+            2,
+            info.as_mut_ptr().cast::<c_void>(),
+        )
+    };
+    if resultado != 0 {
+        return None;
+    }
+    // SAFETY: proc_pid_rusage initialized the complete RusageInfoV2 on success.
+    let info = unsafe { info.assume_init() };
+    Some(UsoProcesoMacos {
+        cpu_ns: info.user_time.saturating_add(info.system_time),
+        resident_size: info.resident_size,
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -351,29 +441,49 @@ pub fn cerrar_proceso(pid: u32) -> bool {
 }
 
 pub fn es_navegador(exe: &str) -> bool {
-    navegador::destino_de(exe).is_some() || exe.to_ascii_lowercase().contains("safari")
+    let texto = exe.replace('\\', "/").to_ascii_lowercase();
+    const APPS: &[&str] = &[
+        "/google chrome.app/",
+        "/microsoft edge.app/",
+        "/brave browser.app/",
+        "/opera.app/",
+        "/opera gx.app/",
+        "/vivaldi.app/",
+        "/chromium.app/",
+        "/firefox.app/",
+        "/librewolf.app/",
+        "/waterfox.app/",
+        "/floorp.app/",
+        "/yandex.app/",
+        "/safari.app/",
+    ];
+    APPS.iter().any(|marca| texto.contains(marca)) || navegador::destino_de(exe).is_some()
 }
 
 pub fn cerrar_navegadores() {
+    for proceso in listar_procesos() {
+        if es_navegador(&proceso.exe) || es_navegador(&proceso.comm) || es_navegador(&proceso.cmdline) {
+            let _ = cerrar_proceso(proceso.pid);
+        }
+    }
+    #[cfg(target_os = "macos")]
     for nombre in APPS_NAVEGADOR {
-        #[cfg(target_os = "macos")]
-        {
-            let _ = Command::new("killall").arg(nombre).status();
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = nombre;
-        }
+        let _ = Command::new("killall").args(["-9", nombre]).status();
     }
 }
 
 pub fn navegadores_abiertos() -> bool {
-    listar_procesos().iter().any(|proceso| es_navegador(&proceso.exe) || es_navegador(&proceso.comm))
+    listar_procesos().iter().any(|proceso| es_navegador(&proceso.exe) || es_navegador(&proceso.comm) || es_navegador(&proceso.cmdline))
 }
 
 pub fn agente_en_ejecucion() -> bool {
     let yo = std::process::id();
-    listar_procesos().iter().any(|proceso| proceso.pid != yo && es_nuestro(proceso))
+    listar_procesos().iter().any(|proceso| {
+        proceso.pid != yo
+            && es_nuestro(proceso)
+            && !proceso.cmdline.contains("desinstalar-pasos")
+            && !proceso.cmdline.contains("aplicar-local")
+    })
 }
 
 fn es_nuestro(proceso: &Proceso) -> bool {
@@ -491,6 +601,11 @@ pub fn detener_y_quitar_servicio() {
     frenar_reinicio_servicio();
     if en_mac_real() {
         let _ = Command::new("launchctl").args(["bootout", &format!("system/{ETIQUETA_DAEMON}")]).status();
+        if let Some(uid) = uid_consola() {
+            let menu = format!("gui/{uid}/{ETIQUETA_MENU}");
+            let _ = Command::new("launchctl").args(["disable", &menu]).status();
+            let _ = Command::new("launchctl").args(["bootout", &menu]).status();
+        }
     }
     let yo = std::process::id();
     for proceso in listar_procesos() {
@@ -828,14 +943,12 @@ pub fn filtro_gobernanza_activo() -> bool {
 
 pub fn instalar_ca(certificado: &Path) -> Result<(), String> {
     if en_mac_real() {
-        let estado = Command::new("security")
-            .args(["add-trusted-cert", "-d", "-r", "trustRoot", "-k", "/Library/Keychains/System.keychain"])
+        let _ = Command::new("security").args(["delete-certificate", "-c", NOMBRE_CA_ANTERIOR, "/Library/Keychains/System.keychain"]).status();
+        let _ = Command::new("security")
+            .args(["add-trusted-cert", "-d", "-r", "trustRoot", "-p", "ssl", "-k", "/Library/Keychains/System.keychain"])
             .arg(certificado)
-            .status()
-            .map_err(|error| error.to_string())?;
-        if !estado.success() {
-            return Err("no se pudo instalar el certificado en el llavero".into());
-        }
+            .status();
+        confiar_en_sesion(certificado)?;
     }
     let marca = certificado.with_file_name("instalada");
     fs::write(marca, b"1").map_err(|error| error.to_string())
@@ -843,11 +956,7 @@ pub fn instalar_ca(certificado: &Path) -> Result<(), String> {
 
 pub fn certificado_instalado() -> bool {
     if en_mac_real() {
-        return Command::new("security")
-            .args(["find-certificate", "-c", "Gobernanza 2", "/Library/Keychains/System.keychain"])
-            .status()
-            .map(|estado| estado.success())
-            .unwrap_or(false);
+        return confianza_de_sesion() || confianza_admin();
     }
     configuracion::carpeta_instalacion().join("ca").join("instalada").is_file()
 }
@@ -855,9 +964,91 @@ pub fn certificado_instalado() -> bool {
 pub fn quitar_ca() -> Result<(), String> {
     let _ = fs::remove_file(configuracion::carpeta_instalacion().join("ca").join("instalada"));
     if en_mac_real() {
-        let _ = Command::new("security").args(["delete-certificate", "-c", "Gobernanza 2", "/Library/Keychains/System.keychain"]).status();
+        for nombre in [NOMBRE_CA, NOMBRE_CA_ANTERIOR] {
+            let _ = Command::new("security").args(["delete-certificate", "-c", nombre, "/Library/Keychains/System.keychain"]).status();
+            if let Some(llavero) = llavero_de_sesion() {
+                let _ = ejecutar_en_sesion(&["/usr/bin/security", "delete-certificate", "-c", nombre, &llavero]);
+            }
+        }
     }
     Ok(())
+}
+
+fn llavero_de_sesion() -> Option<String> {
+    let usuario = usuario_consola().filter(|nombre| nombre != "root" && nombre != "loginwindow")?;
+    let ruta = format!("/Users/{usuario}/Library/Keychains/login.keychain-db");
+    if Path::new(&ruta).is_file() {
+        Some(ruta)
+    } else {
+        None
+    }
+}
+
+fn confianza_de_sesion() -> bool {
+    let Ok(salida) = ejecutar_en_sesion(&["/usr/bin/security", "dump-trust-settings"]) else { return false };
+    let texto = String::from_utf8_lossy(&salida.stdout);
+    salida.status.success() && texto.contains(NOMBRE_CA)
+}
+
+fn confianza_admin() -> bool {
+    let Ok(salida) = Command::new("security").arg("dump-trust-settings").arg("-d").output() else { return false };
+    salida.status.success() && String::from_utf8_lossy(&salida.stdout).contains(NOMBRE_CA)
+}
+
+fn huella_sha1(certificado: &Path) -> Option<String> {
+    let salida = Command::new("openssl").args(["x509", "-in"]).arg(certificado).args(["-noout", "-fingerprint", "-sha1"]).output().ok()?;
+    let texto = String::from_utf8_lossy(&salida.stdout);
+    let huella = texto.split('=').nth(1)?.trim().replace(':', "").to_ascii_uppercase();
+    if huella.len() == 40 { Some(huella) } else { None }
+}
+
+fn huella_en_sesion() -> Option<String> {
+    let llavero = llavero_de_sesion()?;
+    let salida = ejecutar_en_sesion(&["/usr/bin/security", "find-certificate", "-c", NOMBRE_CA, "-Z", &llavero]).ok()?;
+    for linea in String::from_utf8_lossy(&salida.stdout).lines() {
+        let Some(valor) = linea.trim().strip_prefix("SHA-1 hash:") else { continue };
+        let huella = valor.trim().to_ascii_uppercase();
+        if huella.len() == 40 {
+            return Some(huella);
+        }
+    }
+    None
+}
+
+fn confiar_en_sesion(certificado: &Path) -> Result<(), String> {
+    if confianza_de_sesion() && huella_sha1(certificado) == huella_en_sesion() {
+        return Ok(());
+    }
+    let llavero = llavero_de_sesion().ok_or("no hay una sesión de usuario para que Safari confíe el certificado")?;
+    let ruta = certificado.to_string_lossy().to_string();
+    let _ = ejecutar_en_sesion(&["/usr/bin/security", "delete-certificate", "-c", NOMBRE_CA_ANTERIOR, &llavero]);
+    let _ = ejecutar_en_sesion(&["/usr/bin/security", "delete-certificate", "-c", NOMBRE_CA, &llavero]);
+    let salida = ejecutar_en_sesion(&["/usr/bin/security", "add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-k", &llavero, &ruta])?;
+    if !salida.status.success() || !confianza_de_sesion() {
+        let detalle = String::from_utf8_lossy(&salida.stderr);
+        let detalle = detalle.trim();
+        if detalle.is_empty() {
+            return Err("Safari no tomó el certificado".into());
+        }
+        return Err(format!("Safari no tomó el certificado: {detalle}"));
+    }
+    Ok(())
+}
+
+fn uid_consola() -> Option<String> {
+    let usuario = usuario_consola().filter(|nombre| nombre != "root" && nombre != "loginwindow")?;
+    let salida = Command::new("id").args(["-u", &usuario]).output().ok()?;
+    let uid = String::from_utf8_lossy(&salida.stdout).trim().to_string();
+    if uid.is_empty() { None } else { Some(uid) }
+}
+
+fn ejecutar_en_sesion(argumentos: &[&str]) -> Result<std::process::Output, String> {
+    let usuario = usuario_consola().filter(|nombre| nombre != "root" && nombre != "loginwindow").ok_or("no hay una sesión de usuario")?;
+    let uid = uid_consola().ok_or("no se pudo leer el usuario de la sesión")?;
+    let mut comando = Command::new("launchctl");
+    comando.arg("asuser").arg(&uid).arg("sudo").arg("-u").arg(&usuario).arg("--");
+    comando.args(argumentos);
+    comando.output().map_err(|error| error.to_string())
 }
 
 fn raiz() -> PathBuf {
@@ -930,6 +1121,17 @@ mod pruebas {
         assert_eq!(nombre_de_persona("ana").as_deref(), Some("ana"));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn consumo_propio_macos_lee_memoria_residente_real() {
+        let uso = uso_proceso_macos().expect("proc_pid_rusage debe leer el proceso actual");
+        assert!(uso.resident_size > 0);
+        assert!(uso.cpu_ns > 0);
+        let (cpu, ram) = consumo_propio();
+        assert!(cpu.is_finite() && (0.0..=100.0).contains(&cpu));
+        assert!(ram > 0);
+    }
+
     #[test]
     fn las_politicas_se_escriben_bajo_la_raiz_de_prueba() {
         let dir = std::env::temp_dir().join(format!("gob-mac-raiz-{}", std::process::id()));
@@ -946,5 +1148,16 @@ mod pruebas {
         assert!(leer_pac().trim().is_empty());
         std::env::remove_var("GOBERNANZA_RAIZ");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn un_agente_del_sistema_no_es_el_navegador() {
+        assert!(es_navegador("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"));
+        assert!(es_navegador("/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"));
+        assert!(es_navegador("/System/Applications/Safari.app/Contents/MacOS/Safari"));
+        assert!(!es_navegador("/usr/libexec/SafariLaunchAgent"));
+        assert!(!es_navegador("/System/Library/PrivateFrameworks/SafariSafeBrowsing.framework/com.apple.Safari.SafeBrowsing.Service"));
+        assert!(!es_navegador("/Applications/Microsoft Teams.app/Contents/Helpers/Microsoft Teams WebView.app/Contents/MacOS/Microsoft Teams WebView Helper"));
+        assert!(!es_navegador("/Library/PrivilegedHelperTools/ChromeRemoteDesktopHost.app/Contents/MacOS/remoting_me2me_host_service"));
     }
 }

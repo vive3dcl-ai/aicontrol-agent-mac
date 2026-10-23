@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "gobernanza-agente-macos"
-version = "0.1.0"
+version = "0.1.9"
 dependencies = [
  "rcgen",
  "ring",
@@ -105,6 +105,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "time",
  "webpki-roots 0.26.11",
 ]
 
